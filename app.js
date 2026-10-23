@@ -51,10 +51,12 @@ function wakeWindow(ageDays) {
 function ageDaysOf(birthStr) {
   if (!birthStr) return 0;
   const b = new Date(`${birthStr}T12:00:00`);
-  return Math.max(0, Math.floor((now() - b.getTime()) / 86400000));
+  return Math.floor((now() - b.getTime()) / 86400000); // negativo = ainda nao nasceu
 }
 function ageLabel(birthStr) {
   const d = ageDaysOf(birthStr);
+  if (d < -1) return `faltam ${-d} dias para nascer`;
+  if (d === -1) return 'nasce amanhã ♡';
   if (d < 1) return 'nasceu hoje ♡';
   if (d < 30) return `${d} ${d === 1 ? 'dia' : 'dias'} de vida`;
   if (d < 60) return `${Math.floor(d / 7)} semanas de vida`;
@@ -395,7 +397,7 @@ function render() {
   // alerta de mamada (recém-nascido: a cada ~3h)
   const alert = $('feed-alert');
   const age = ageDaysOf(birth);
-  if (lastFeed && age < 90 && now() - lastFeed.startsAt > 3 * 3600000 && !activeOf('feeding', 'breast')) {
+  if (lastFeed && age >= 0 && age < 90 && now() - lastFeed.startsAt > 3 * 3600000 && !activeOf('feeding', 'breast')) {
     alert.hidden = false;
     alert.textContent = `⏰ Já faz ${fmtDur(now() - lastFeed.startsAt)} desde a última mamada. Para recém-nascido, o ritmo costuma ser a cada 2–3h — vale observar os sinais de fome.`;
   } else { alert.hidden = true; }
@@ -407,8 +409,15 @@ function render() {
   renderSettings();
 }
 function renderNextNap(birth) {
-  const sleeping = activeOf('sleep');
   const box = $('next-content');
+  const agePre = ageDaysOf(birth);
+  if (birth && agePre < 0) {
+    box.innerHTML = `<p class="next-time">${agePre === -1 ? 'Amanhã ♡' : `Faltam ${-agePre} dias`}</p><p class="muted">para o grande dia · data prevista ${new Date(`${birth}T12:00:00`).toLocaleDateString('pt-BR')}</p>`;
+    $('window-progress').style.width = '0%';
+    $('window-note').textContent = 'O cronômetro de contrações, aqui embaixo, já está pronto para quando começar.';
+    return;
+  }
+  const sleeping = activeOf('sleep');
   if (sleeping) {
     box.innerHTML = `<p class="next-time">Dormindo ☾</p><p class="muted">há ${fmtDur(now() - sleeping.startsAt)}</p>`;
     $('window-progress').style.width = '100%';
@@ -626,7 +635,7 @@ $('btn-export').addEventListener('click', async () => {
 });
 
 // ---------------- sons para dormir (WebAudio, loop sem emenda) ----------------
-let audioCtx = null; let soundSrc = null; let soundTimer = null;
+let audioCtx = null; let soundSrc = null; let soundGain = null; let soundLfo = null; let soundTimer = null;
 function makeNoiseBuffer(type) {
   const len = audioCtx.sampleRate * 4;
   const buffer = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
@@ -634,10 +643,14 @@ function makeNoiseBuffer(type) {
   let last = 0; let b0 = 0; let b1 = 0; let b2 = 0;
   for (let i = 0; i < len; i++) {
     const white = Math.random() * 2 - 1;
-    if (type === 'brown') { last = (last + 0.02 * white) / 1.02; data[i] = last * 3.5; }
-    else if (type === 'pink') { b0 = 0.997 * b0 + 0.029 * white; b1 = 0.985 * b1 + 0.032 * white; b2 = 0.95 * b2 + 0.048 * white; data[i] = (b0 + b1 + b2 + white * 0.05) * 1.6; }
-    else data[i] = white * 0.5;
+    if (type === 'brown') { last = (last + 0.02 * white) / 1.02; data[i] = last * 3.2; }
+    else if (type === 'pink') { b0 = 0.997 * b0 + 0.029 * white; b1 = 0.985 * b1 + 0.032 * white; b2 = 0.95 * b2 + 0.048 * white; data[i] = (b0 + b1 + b2 + white * 0.05) * 1.5; }
+    else data[i] = white * 0.6;
   }
+  // normaliza o pico para o som sair cheio em qualquer alto-falante (o grave some nos fraquinhos)
+  let peak = 0;
+  for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(data[i]));
+  if (peak > 0) { const scale = 0.95 / peak; for (let i = 0; i < len; i++) data[i] *= scale; }
   // costura do loop: desvanecer as pontas uma na outra para nao clicar
   const fade = Math.floor(audioCtx.sampleRate * 0.08);
   for (let i = 0; i < fade; i++) {
@@ -649,23 +662,46 @@ function makeNoiseBuffer(type) {
 }
 function stopSound() {
   if (soundSrc) { try { soundSrc.stop(); } catch { /* ja parado */ } soundSrc = null; }
+  if (soundLfo) { try { soundLfo.stop(); } catch { /* idem */ } soundLfo = null; }
   clearTimeout(soundTimer);
   $('btn-sound').textContent = '▶ Tocar som';
 }
-$('btn-sound').addEventListener('click', () => {
-  if (soundSrc) { stopSound(); return; }
+function startSound() {
   audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  const gain = audioCtx.createGain(); gain.gain.value = 0.55;
+  if (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted') audioCtx.resume();
+  const type = $('sound-type').value;
+  soundGain = audioCtx.createGain();
+  soundGain.gain.value = Number($('sound-volume').value) / 100;
   soundSrc = audioCtx.createBufferSource();
-  soundSrc.buffer = makeNoiseBuffer($('sound-type').value);
+  soundSrc.buffer = makeNoiseBuffer(type);
   soundSrc.loop = true;
-  soundSrc.connect(gain).connect(audioCtx.destination);
+  if (type === 'brown') {
+    // "utero": grave filtrado + ondulacao lenta, como o som de dentro da barriga
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass'; filter.frequency.value = 480;
+    soundSrc.connect(filter).connect(soundGain).connect(audioCtx.destination);
+    soundLfo = audioCtx.createOscillator();
+    const lfoDepth = audioCtx.createGain();
+    lfoDepth.gain.value = soundGain.gain.value * 0.22;
+    soundLfo.frequency.value = 0.13;
+    soundLfo.connect(lfoDepth).connect(soundGain.gain);
+    soundLfo.start();
+  } else {
+    soundSrc.connect(soundGain).connect(audioCtx.destination);
+  }
   soundSrc.start();
   $('btn-sound').textContent = '■ Parar som';
   const mins = Number($('sound-timer').value);
   if (mins > 0) soundTimer = setTimeout(stopSound, mins * 60000);
+}
+$('btn-sound').addEventListener('click', () => {
+  try {
+    if (soundSrc) { stopSound(); return; }
+    startSound();
+  } catch { toast('Não consegui tocar o som neste navegador. Tente de novo ou use outro navegador.'); }
 });
+$('sound-type').addEventListener('change', () => { if (soundSrc) { stopSound(); try { startSound(); } catch { toast('Não consegui trocar o som.'); } } });
+$('sound-volume').addEventListener('input', () => { if (soundGain) soundGain.gain.value = Number($('sound-volume').value) / 100; });
 
 // ---------------- contracoes (neste aparelho) ----------------
 let contractionActive = null;
