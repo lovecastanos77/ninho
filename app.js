@@ -464,6 +464,7 @@ function render() {
   renderGrowth();
   renderBirth();
   renderHealth();
+  renderPhoto();
   renderTimeline();
   renderButtons();
   renderSettings();
@@ -525,7 +526,7 @@ function renderBars() {
 }
 function renderTimeline() {
   const box = $('timeline');
-  const list = state.events.filter((e) => e.type !== 'vitamin' && e.type !== 'question').slice(0, 30);
+  const list = state.events.filter((e) => e.type !== 'vitamin' && e.type !== 'question' && e.type !== 'photo').slice(0, 30);
   if (!list.length) {
     box.innerHTML = '<div class="empty-state"><span>✦</span>Nenhum registro ainda. Toque em um botão acima para começar.</div>';
     return;
@@ -996,6 +997,51 @@ document.addEventListener('click', async (ev) => {
   }
   const qd = ev.target.closest?.('[data-qdel]');
   if (qd) { await deleteEvent(qd.dataset.qdel); renderHealth(); }
+});
+
+
+// ---------------- foto do bebe ----------------
+// A foto vive como um registro sincronizado (imagem comprimida no aparelho):
+// aparece nos dois celulares sem precisar de servico de arquivos.
+function babyPhotoUrl() { const e = state.events.find((x) => x.type === 'photo' && x.note); return e ? e.note : null; }
+function renderPhoto() {
+  const img = $('avatar-img'); const fb = $('avatar-fallback');
+  if (!img || !fb) return;
+  const url = babyPhotoUrl();
+  if (url) { img.src = url; img.hidden = false; fb.hidden = true; }
+  else { img.hidden = true; img.removeAttribute('src'); fb.hidden = false; fb.textContent = (state.baby?.name || '').trim().charAt(0).toUpperCase() || '👶'; }
+}
+function fileToPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const max = 512;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      let out = c.toDataURL('image/jpeg', 0.82);
+      if (out.length > 380000) out = c.toDataURL('image/jpeg', 0.65);
+      resolve(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img')); };
+    img.src = url;
+  });
+}
+$('avatar-btn').addEventListener('click', () => $('photo-input').click());
+$('photo-input').addEventListener('change', async (ev) => {
+  const f = ev.target.files?.[0];
+  ev.target.value = '';
+  if (!f) return;
+  try {
+    const dataUrl = await fileToPhoto(f);
+    for (const o of state.events.filter((x) => x.type === 'photo')) await deleteEvent(o.id);
+    await addEvent({ type: 'photo', note: dataUrl, endsAt: now() });
+    toast('Foto salva 📷');
+  } catch { toast('Não consegui ler essa foto — tenta outra.'); }
+  renderPhoto();
 });
 
 // ---------------- sons para dormir ----------------
