@@ -4,7 +4,7 @@ Diário do bebê em português, original e feito para a nossa família: sono, ma
 
 ## O que tem nesta versão
 
-- **Conta e sincronização (Supabase):** login por e-mail, família com código de convite (RPC `join_family_by_code`), eventos em tempo real entre os celulares do casal. Sem conta, funciona em **modo local** (só naquele aparelho).
+- **Entrada sem senha e sincronização (Supabase):** link mágico (token) por e-mail via `signInWithOtp`, ou entrada por código da família com sessão anônima do aparelho (`signInAnonymously` + RPC `join_family_by_code`) — para essa segunda porta, ligue **Authentication → Providers → Anonymous** no painel. Eventos em tempo real entre os celulares do casal. Sem conta, funciona em **modo local** (só naquele aparelho).
 - **Registros de 1 toque ou com cronômetro:** sono, peito esquerdo/direito (com sugestão do próximo peito), mamadeira (ml), ordenha (ml), fralda (xixi/cocô/os dois), barriguinha (tummy time), banho, peso + comprimento + perímetro cefálico, temperatura, remédio/vitamina e registro manual.
 - **Próxima soneca:** janela de vigília por idade (tabela de referência: 0–4 sem 35–60 min; 4–12 sem 60–90; 3–4 m 75–120; 5–7 m 2–3h; 7–10 m 2,5–3,5h; 11–14 m 3–4h; 14–24 m 4–6h), com encurtamento automático após soneca curta (<40 min).
 - **Alerta de mamada:** para recém-nascido, avisa quando passam ~3h da última mamada.

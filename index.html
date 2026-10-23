@@ -24,16 +24,30 @@
 
     <section id="auth-view" class="panel auth-panel" hidden>
       <p class="eyebrow">BEM-VINDOS AO NINHO</p>
-      <h1>Entrar para sincronizar</h1>
-      <p class="muted">Com a conta, você e sua parceira(o) registram no mesmo bebê, em celulares diferentes, e veem tudo na hora. Sem conta, o app funciona só neste aparelho.</p>
-      <form id="auth-form" class="stack">
-        <label>E-mail<input id="auth-email" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
-        <label>Senha<input id="auth-password" type="password" autocomplete="current-password" required placeholder="Sua senha"></label>
+      <h1>Entrar — sem senha</h1>
+      <p class="muted">Nada de decorar senha: escolha uma das portas abaixo e o Ninho lembra de você neste aparelho.</p>
+      <div class="stack">
+        <div class="subcard">
+          <h2>Link mágico por e-mail</h2>
+          <p class="muted">Você recebe um link-token no e-mail; tocou nele, entrou.</p>
+          <form id="auth-form" class="stack">
+            <label>Seu e-mail<input id="auth-email" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
+            <button class="primary-button full" type="submit" id="auth-submit">Receber meu link de acesso</button>
+          </form>
+        </div>
+        <div class="subcard">
+          <h2>Código da família</h2>
+          <p class="muted">Sua parceira(o) já criou a família? Cole o código de convite e entre direto, sem e-mail.</p>
+          <form id="code-form" class="join-row">
+            <input id="family-code" maxlength="12" placeholder="CÓDIGO" autocomplete="off">
+            <button class="primary-button" type="submit">Entrar</button>
+          </form>
+          <p class="muted tiny">É a primeira vez da família? Use o link por e-mail acima e crie a família na próxima tela.</p>
+        </div>
         <p id="auth-error" class="form-error" role="alert"></p>
-        <button class="primary-button full" type="submit" id="auth-submit">Entrar</button>
-        <button class="text-button" type="button" id="auth-toggle">Ainda não tenho conta — criar agora</button>
+        <p id="auth-info" class="form-ok" role="status"></p>
         <button class="text-button" type="button" id="auth-local">Continuar sem conta (só neste aparelho)</button>
-      </form>
+      </div>
     </section>
 
     <section id="setup-view" class="panel auth-panel" hidden>

@@ -171,46 +171,44 @@ function toast(msg) {
   toastTimer = setTimeout(() => { t.hidden = true; }, 4200);
 }
 
-// ---------------- autenticacao e montagem da familia ----------------
-let authMode = 'login';
-$('auth-toggle').addEventListener('click', () => {
-  authMode = authMode === 'login' ? 'signup' : 'login';
-  $('auth-submit').textContent = authMode === 'login' ? 'Entrar' : 'Criar conta';
-  $('auth-toggle').textContent = authMode === 'login' ? 'Ainda não tenho conta — criar agora' : 'Já tenho conta — entrar';
-  $('auth-error').textContent = '';
-});
+// ---------------- autenticacao sem senha (link magico / codigo da familia) ----------------
 $('auth-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   if (!sb) { $('auth-error').textContent = 'A nuvem não está configurada neste aparelho.'; return; }
   const email = $('auth-email').value.trim();
-  const password = $('auth-password').value;
-  $('auth-error').textContent = '';
-  try {
-    if (authMode === 'signup') {
-      const { data, error } = await sb.auth.signUp({ email, password });
-      if (error) throw error;
-      if (!data.session) {
-        $('auth-error').textContent = 'Conta criada! Confirme pelo link que chegou no seu e-mail e depois entre aqui.';
-        authMode = 'login'; $('auth-submit').textContent = 'Entrar';
-        return;
-      }
-    } else {
-      const { error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-    }
-    await afterAuth();
-  } catch (e) {
-    $('auth-error').textContent = traduzErroAuth(e);
-  }
+  $('auth-error').textContent = ''; $('auth-info').textContent = '';
+  $('auth-submit').textContent = 'Enviando…';
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.href.split('#')[0] },
+  });
+  $('auth-submit').textContent = 'Receber meu link de acesso';
+  if (error) { $('auth-error').textContent = 'Não consegui enviar o link. Confira o e-mail e tente de novo.'; return; }
+  $('auth-info').textContent = `Link enviado para ${email}! Abra o e-mail e toque no link — você entra direto, sem senha. Pode fechar esta tela.`;
 });
-function traduzErroAuth(e) {
-  const m = String(e?.message || '');
-  if (m.includes('Invalid login')) return 'E-mail ou senha não conferem.';
-  if (m.includes('already registered')) return 'Este e-mail já tem conta. Tente entrar.';
-  if (m.includes('Email not confirmed')) return 'Confirme sua conta pelo link enviado ao seu e-mail.';
-  if (m.includes('Password should be')) return 'A senha precisa de pelo menos 6 caracteres.';
-  return 'Algo não deu certo. Tente de novo.';
-}
+$('code-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  if (!sb) { $('auth-error').textContent = 'A nuvem não está configurada neste aparelho.'; return; }
+  const code = $('family-code').value.trim();
+  $('auth-error').textContent = ''; $('auth-info').textContent = '';
+  // sessao anonima: identidade deste aparelho, sem e-mail nem senha
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) {
+    const { error } = await sb.auth.signInAnonymously();
+    if (error) {
+      $('auth-error').textContent = 'A entrada por código ainda não foi ligada no Supabase (acesso anônimo). Use o link por e-mail, que já funciona.';
+      return;
+    }
+  }
+  const { data: { user } } = await sb.auth.getUser();
+  state.user = user; state.mode = 'cloud';
+  if (code) {
+    const { error } = await sb.rpc('join_family_by_code', { p_code: code });
+    if (error) { $('auth-error').textContent = 'Código não encontrado. Confira e tente de novo.'; return; }
+  }
+  const ok = await loadFamilyContext();
+  if (ok) { await enterApp(); } else { show('setup-view'); }
+});
 $('auth-local').addEventListener('click', () => enterLocal());
 $('setup-logout').addEventListener('click', logout);
 $('btn-logout').addEventListener('click', logout);
