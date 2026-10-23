@@ -120,3 +120,25 @@
 .baby-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}
 .avatar-cam{position:absolute;right:-3px;bottom:-3px;background:#fff;border-radius:50%;font-size:12px;padding:3px;box-shadow:0 2px 6px rgba(0,0,0,.22);line-height:1}
 .greeting{align-items:center}
+
+.bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;gap:6px;background:rgba(255,252,247,.94);backdrop-filter:blur(10px);border-top:1px solid #e9e4dd;padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
+.bottom-nav[hidden]{display:none}
+.bnav-btn{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11.5px;font-weight:700;color:#8b968e;padding:7px 0;border-radius:12px}
+.bnav-btn span{font-size:20px;line-height:1}
+.bnav-btn.is-active{color:#294f47;background:#e7eee4}
+body.has-bnav{padding-bottom:78px}
+.vax-tabs{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 6px}
+.vax-pill{border:1px solid #ddd8ce;background:#fcfaf7;color:#5c7268;border-radius:999px;padding:7px 12px;font-size:12.5px;font-weight:700;cursor:pointer}
+.vax-pill small{color:#a78b77}
+.vax-pill.is-active{background:#294f47;color:#fff;border-color:#294f47}
+.vax-pill.is-active small{color:#f1d5b6}
+.measure-card{background:#fff;border:1px solid #eeebe5;border-radius:23px;padding:24px;min-height:0}
+.measure-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.measure-form label{font-size:13px;font-weight:700;color:#39544d;display:flex;flex-direction:column;gap:6px}
+.measure-form input{border:1px solid #deded6;border-radius:11px;background:#fcfaf7;color:#28433d;padding:12px;font:inherit;width:100%}
+.measure-form .primary-button{grid-column:1/-1}
+.measure-help{display:flex;gap:18px;align-items:flex-start;background:#f8f5f1;border-radius:16px;padding:16px;margin-top:16px;flex-wrap:wrap}
+.measure-svg{width:185px;flex:none}
+.measure-help p{font-size:13.5px;line-height:1.6;color:#5c7268;margin:6px 0}
+.measure-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0ece5}
+.tab-panel>.card,.tab-panel>.dashboard-grid,.tab-panel>.lower-grid{margin-bottom:22px}

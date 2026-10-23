@@ -113,6 +113,42 @@
         <p class="muted tiny">Para editar, toque no nome do bebê no topo da tela (Perfil do bebê).</p>
       </section>
 
+      <section class="card measure-card" aria-label="Nova medida">
+        <div class="card-heading"><span class="overline">NOVA MEDIDA</span><span aria-hidden="true">📏</span></div>
+        <form id="measure-form" class="measure-form">
+          <label>Data<input type="date" id="m-date" required></label>
+          <label>Peso (kg)<input type="text" id="m-weight" inputmode="decimal" placeholder="ex.: 4,25"></label>
+          <label>Comprimento (cm)<input type="text" id="m-length" inputmode="decimal" placeholder="ex.: 55"></label>
+          <label>Cabecinha (cm)<input type="text" id="m-head" inputmode="decimal" placeholder="ex.: 37"></label>
+          <button class="primary-button" type="submit">Salvar medida</button>
+        </form>
+        <p class="form-error" id="m-error" role="alert"></p>
+        <div class="measure-help">
+          <svg class="measure-svg" viewBox="0 0 220 170" role="img" aria-label="Desenho de um bebê com a fita métrica ao redor da cabeça, acima das sobrancelhas e das orelhas">
+            <text x="110" y="16" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5c7d68">a fita vai na parte mais larga</text>
+            <ellipse cx="55" cy="100" rx="9" ry="14" fill="#fdeeda" stroke="#dcb98f" stroke-width="2"/>
+            <ellipse cx="165" cy="100" rx="9" ry="14" fill="#fdeeda" stroke="#dcb98f" stroke-width="2"/>
+            <ellipse cx="110" cy="95" rx="54" ry="60" fill="#fdeeda" stroke="#dcb98f" stroke-width="2"/>
+            <path d="M99 37 q11 -13 22 0" fill="none" stroke="#b08968" stroke-width="3" stroke-linecap="round"/>
+            <path d="M54 76 a56 19 0 0 0 112 0" fill="none" stroke="#6e9e7d" stroke-width="3" stroke-dasharray="3 6" opacity=".45"/>
+            <path d="M54 76 a56 19 0 0 1 112 0" fill="none" stroke="#6e9e7d" stroke-width="6" stroke-dasharray="7 5" stroke-linecap="round"/>
+            <g transform="rotate(24 168 58)"><rect x="166" y="52" width="34" height="12" rx="3" fill="#ffd98a" stroke="#d9a441"/><line x1="174" y1="52" x2="174" y2="58" stroke="#d9a441"/><line x1="182" y1="52" x2="182" y2="58" stroke="#d9a441"/><line x1="190" y1="52" x2="190" y2="58" stroke="#d9a441"/></g>
+            <circle cx="88" cy="104" r="3.5" fill="#5b4a42"/>
+            <circle cx="132" cy="104" r="3.5" fill="#5b4a42"/>
+            <ellipse cx="76" cy="116" rx="6" ry="3.5" fill="#f3b8a0" opacity=".7"/>
+            <ellipse cx="144" cy="116" rx="6" ry="3.5" fill="#f3b8a0" opacity=".7"/>
+            <path d="M99 121 q11 9 22 0" fill="none" stroke="#5b4a42" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+          <div>
+            <h3 class="health-subtitle">Como medir a cabecinha</h3>
+            <p>Passe a fita métrica ao redor da <strong>parte mais larga</strong> da cabeça: logo <strong>acima das sobrancelhas e das orelhas</strong>, e atrás pelo ponto mais saliente. A fita fica encostada, sem apertar. Meça 2 vezes e anote a maior.</p>
+            <p class="muted tiny">Comprimento: bebê deitado de costas, perninhas esticadas com carinho — do topo da cabeça até o calcanhar. Peso: sem roupa e com a fralda seca, se der.</p>
+          </div>
+        </div>
+        <h3 class="health-subtitle">Medidas registradas</h3>
+        <div id="measure-history"></div>
+      </section>
+
       <section class="card growth-card" aria-label="Crescimento">
         <div class="card-heading"><span class="overline">CRESCIMENTO · OMS</span><span class="muted" id="growth-age"></span></div>
         <div id="growth-summary"><p class="muted">Carregando…</p></div>
@@ -134,6 +170,7 @@
         </div>
         <div class="vitamin-dots" id="vitamin-dots" aria-label="Vitamina dos últimos 7 dias"></div>
         <h3 class="health-subtitle">Vacinas · calendário oficial (SUS)</h3>
+        <div id="vax-tabs" class="vax-tabs" aria-label="Vacinas por idade"></div>
         <div id="vaccine-list"></div>
         <p class="muted tiny">Datas previstas calculadas a partir do nascimento. Quem manda é a caderneta de papel e a equipe da sala de vacinação — isto aqui é um lembrete carinhoso. Influenza: depois das doses do primeiro ano, uma dose por ano na campanha. A da bronquiolite (VSR) é um anticorpo que protege por uma estação: no SUS é para prematuros e casos especiais; na rede privada, para qualquer bebê — a época certa é antes ou durante o outono/inverno.</p>
         <h3 class="health-subtitle">Perguntas para o pediatra</h3>
@@ -279,5 +316,10 @@
     }, 7000);
   </script>
   <script type="module" src="app.js"></script>
+  <nav id="bottom-nav" class="bottom-nav" hidden aria-label="Menu principal">
+    <button type="button" class="bnav-btn is-active" data-apptab="hoje"><span aria-hidden="true">🏠</span>Hoje</button>
+    <button type="button" class="bnav-btn" data-apptab="crescimento"><span aria-hidden="true">📏</span>Crescimento</button>
+    <button type="button" class="bnav-btn" data-apptab="caderneta"><span aria-hidden="true">🩺</span>Caderneta</button>
+  </nav>
 </body>
 </html>

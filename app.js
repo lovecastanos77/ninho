@@ -176,7 +176,38 @@ $('theme-toggle').addEventListener('click', () => {
 function show(view) {
   for (const v of ['auth-view', 'setup-view', 'app-view']) $(v).hidden = v !== view;
   $('profile-button').style.visibility = view === 'app-view' ? 'visible' : 'hidden';
+  $('bottom-nav').hidden = view !== 'app-view';
+  document.body.classList.toggle('has-bnav', view === 'app-view');
 }
+
+// ---------------- abas (menu inferior) ----------------
+const appPanels = {};
+let appTab = 'hoje';
+(function buildPanels() {
+  const main = $('app-view');
+  const mk = (id, hidden) => { const d = document.createElement('div'); d.id = id; d.className = 'tab-panel'; d.hidden = hidden; return d; };
+  appPanels.hoje = mk('panel-hoje', false);
+  appPanels.crescimento = mk('panel-crescimento', true);
+  appPanels.caderneta = mk('panel-caderneta', true);
+  const kids = [...main.children];
+  const first = kids.find((el) => !el.classList.contains('greeting'));
+  for (const p of [appPanels.hoje, appPanels.crescimento, appPanels.caderneta]) main.insertBefore(p, first || null);
+  for (const el of kids) {
+    if (el.classList.contains('greeting')) continue;
+    if (el.classList.contains('growth-card') || el.classList.contains('measure-card')) appPanels.crescimento.appendChild(el);
+    else if (el.classList.contains('health-card')) appPanels.caderneta.appendChild(el);
+    else appPanels.hoje.appendChild(el);
+  }
+})();
+function setTab(name) {
+  appTab = name;
+  for (const [k, p] of Object.entries(appPanels)) p.hidden = k !== name;
+  document.querySelectorAll('[data-apptab]').forEach((b) => b.classList.toggle('is-active', b.dataset.apptab === name));
+}
+$('bottom-nav').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-apptab]');
+  if (b) { setTab(b.dataset.apptab); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+});
 let toastTimer = null;
 function toast(msg) {
   const t = $('toast');
@@ -465,6 +496,7 @@ function render() {
   renderBirth();
   renderHealth();
   renderPhoto();
+  renderMeasures();
   renderTimeline();
   renderButtons();
   renderSettings();
@@ -903,6 +935,7 @@ const VACCINES = [
 function vaccineName(id) { return VACCINES.find((v) => v.id === id)?.name || id || ''; }
 function dueTs(birthStr, months) { const d = new Date(`${birthStr}T12:00:00`); d.setMonth(d.getMonth() + months); return d.getTime(); }
 function ageGroupLabel(m) { return m === 0 ? 'Ao nascer' : m < 24 ? `${m} meses` : `${m / 12} anos`; }
+let vaxAgeTab = null;
 function renderHealth() {
   const listBox = $('vaccine-list'); const nextBox = $('next-vaccine');
   if (!listBox || !nextBox || !state.baby) return;
@@ -947,19 +980,31 @@ function renderHealth() {
           : `💉 Próxima vacina: ${v.name} (${v.dose}) — em ${dias} ${dias === 1 ? 'dia' : 'dias'} (${data}).`;
     }
   }
-  // lista agrupada por idade
+  // abas por idade: mostra so o grupo escolhido (padrao = proxima idade devida)
   const groups = [...new Set(VACCINES.map((v) => v.m))];
-  listBox.innerHTML = groups.map((m) => {
-    const rows = VACCINES.filter((v) => v.m === m).map((v) => {
-      const ev = applied.get(v.id);
-      if (ev) {
-        return `<div class="vax-row done"><span class="vax-check">✓</span><div class="vax-main"><strong>${v.name}</strong> · ${v.dose}<small>aplicada em ${new Date(ev.startsAt).toLocaleDateString('pt-BR')}</small></div><button class="text-button" type="button" data-unvax="${ev.id}">desfazer</button></div>`;
-      }
-      const due = birth ? new Date(dueTs(birth, v.m)).toLocaleDateString('pt-BR') : '';
-      const atrasada = born && dueTs(birth, v.m) < now();
-      return `<div class="vax-row"><span class="vax-check pending">○</span><div class="vax-main"><strong>${v.name}</strong> · ${v.dose}<small>${birth ? `prevista para ${due}` : ''}${atrasada ? ' · <b class="vax-late">atrasada</b>' : ''}</small></div><button class="text-button" type="button" data-vax="${v.id}">marcar aplicada</button></div>`;
+  if (vaxAgeTab === null || !groups.includes(vaxAgeTab)) {
+    if (!born) vaxAgeTab = 0;
+    else {
+      const pend = VACCINES.filter((v) => !applied.has(v.id)).map((v) => v.m);
+      vaxAgeTab = pend.length ? pend[0] : groups[groups.length - 1];
+    }
+  }
+  const tabsBox = $('vax-tabs');
+  if (tabsBox) {
+    tabsBox.innerHTML = groups.map((m) => {
+      const tot = VACCINES.filter((v) => v.m === m).length;
+      const dn = VACCINES.filter((v) => v.m === m && applied.has(v.id)).length;
+      return `<button type="button" class="vax-pill${m === vaxAgeTab ? ' is-active' : ''}" data-vaxage="${m}">${ageGroupLabel(m)} <small>${dn}/${tot}</small></button>`;
     }).join('');
-    return `<h4 class="vax-group">${ageGroupLabel(m)}</h4>${rows}`;
+  }
+  listBox.innerHTML = VACCINES.filter((v) => v.m === vaxAgeTab).map((v) => {
+    const ev = applied.get(v.id);
+    if (ev) {
+      return `<div class="vax-row done"><span class="vax-check">✓</span><div class="vax-main"><strong>${v.name}</strong> · ${v.dose}<small>aplicada em ${new Date(ev.startsAt).toLocaleDateString('pt-BR')}</small></div><button class="text-button" type="button" data-unvax="${ev.id}">desfazer</button></div>`;
+    }
+    const due = birth ? new Date(dueTs(birth, v.m)).toLocaleDateString('pt-BR') : '';
+    const atrasada = born && dueTs(birth, v.m) < now();
+    return `<div class="vax-row"><span class="vax-check pending">○</span><div class="vax-main"><strong>${v.name}</strong> · ${v.dose}<small>${birth ? `prevista para ${due}` : ''}${atrasada ? ' · <b class="vax-late">atrasada</b>' : ''}</small></div><button class="text-button" type="button" data-vax="${v.id}">marcar aplicada</button></div>`;
   }).join('');
   // perguntas
   const qs = state.events.filter((e) => e.type === 'question');
@@ -985,6 +1030,10 @@ $('question-form').addEventListener('submit', async (ev) => {
   renderHealth();
 });
 document.addEventListener('click', async (ev) => {
+  const pill = ev.target.closest?.('[data-vaxage]');
+  if (pill) { vaxAgeTab = Number(pill.dataset.vaxage); renderHealth(); return; }
+  const mdel = ev.target.closest?.('[data-mdel]');
+  if (mdel) { await deleteEvent(mdel.dataset.mdel); renderMeasures(); renderGrowth(); return; }
   const apply = ev.target.closest?.('[data-vax]');
   if (apply) { await addEvent({ type: 'vaccine', note: apply.dataset.vax, endsAt: now() }); toast('Vacina marcada como aplicada 💉'); renderHealth(); return; }
   const undo = ev.target.closest?.('[data-unvax]');
@@ -1042,6 +1091,60 @@ $('photo-input').addEventListener('change', async (ev) => {
     toast('Foto salva 📷');
   } catch { toast('Não consegui ler essa foto — tenta outra.'); }
   renderPhoto();
+});
+
+
+// ---------------- medidas (aba Crescimento) ----------------
+function fmtN(n) { return Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 }); }
+function renderMeasures() {
+  const box = $('measure-history');
+  if (!box) return;
+  const dEl = $('m-date');
+  if (dEl && !dEl.value) dEl.value = new Date().toLocaleDateString('sv-SE');
+  const ms = state.events.filter((e) => e.type === 'weight');
+  if (!ms.length) {
+    box.innerHTML = '<p class="muted tiny">Nenhuma medida registrada ainda — a primeira costuma ser a do nascimento, na maternidade.</p>';
+    return;
+  }
+  const birthTs = state.baby?.birth_date ? new Date(`${state.baby.birth_date}T12:00:00`).getTime() : null;
+  box.innerHTML = ms.map((e) => {
+    const parts = [];
+    if (e.weightKg) parts.push(`${fmtN(e.weightKg)} kg`);
+    if (e.lengthCm) parts.push(`${fmtN(e.lengthCm)} cm`);
+    if (e.headCm) parts.push(`cabecinha ${fmtN(e.headCm)} cm`);
+    let idade = '';
+    let dias = null;
+    if (birthTs) {
+      dias = Math.round((e.startsAt - birthTs) / 86400000);
+      idade = dias < 0 ? 'antes de nascer' : dias === 0 ? 'ao nascer' : dias < 60 ? `aos ${dias} dias` : `aos ${(dias / 30.4375).toFixed(1).replace('.', ',')} meses`;
+    }
+    const chips = [];
+    if (dias !== null && dias >= 0) {
+      if (e.weightKg) chips.push(`peso P${Math.round(pctOf(zOf('weight', e.weightKg, dias)))}`);
+      if (e.lengthCm) chips.push(`compr. P${Math.round(pctOf(zOf('length', e.lengthCm, dias)))}`);
+      if (e.headCm) chips.push(`cab. P${Math.round(pctOf(zOf('head', e.headCm, dias)))}`);
+    }
+    return `<div class="measure-row"><div class="vax-main"><strong>${new Date(e.startsAt).toLocaleDateString('pt-BR')}</strong>${idade ? ` · ${idade}` : ''}<small>${parts.join(' · ')}${chips.length ? ` — ${chips.join(' · ')}` : ''}</small></div><button class="delete-button" type="button" data-mdel="${e.id}" aria-label="Excluir medida">×</button></div>`;
+  }).join('');
+}
+const numOrNull = (v) => { const n = Number(String(v || '').trim().replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : null; };
+$('measure-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('m-error');
+  err.textContent = '';
+  const d = $('m-date').value;
+  const w = numOrNull($('m-weight').value);
+  const l = numOrNull($('m-length').value);
+  const hd = numOrNull($('m-head').value);
+  if (!d) { err.textContent = 'Escolhe a data da medida.'; return; }
+  if (!w && !l && !hd) { err.textContent = 'Preenche pelo menos uma medida: peso, comprimento ou cabecinha.'; return; }
+  const ts = new Date(`${d}T12:00:00`).getTime();
+  if (ts > now() + 86400000) { err.textContent = 'Essa data ainda não chegou — confere a data.'; return; }
+  await addEvent({ type: 'weight', startsAt: ts, endsAt: ts, weightKg: w, lengthCm: l, headCm: hd });
+  $('m-weight').value = ''; $('m-length').value = ''; $('m-head').value = '';
+  $('m-date').value = new Date().toLocaleDateString('sv-SE');
+  toast('Medida salva 📏');
+  renderMeasures(); renderGrowth();
 });
 
 // ---------------- sons para dormir ----------------
