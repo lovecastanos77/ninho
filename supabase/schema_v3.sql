@@ -29,7 +29,7 @@ create or replace function public.enter_with_token(p_token text)
 returns public.families
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_norm text := upper(regexp_replace(coalesce(p_token, ''), '[^A-Za-z0-9]', '', 'g'));
@@ -63,7 +63,7 @@ create or replace function public.claim_token_family(p_token text, p_family_id u
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_norm text := upper(regexp_replace(coalesce(p_token, ''), '[^A-Za-z0-9]', '', 'g'));
