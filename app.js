@@ -337,11 +337,13 @@ function enterLocal() {
   state.events = [...local.events].sort((a, b) => b.startsAt - a.startsAt);
   show('app-view');
   render();
+  runQuickAction();
 }
 async function enterApp() {
   show('app-view');
   await loadEvents();
   subscribeRealtime();
+  runQuickAction();
 }
 function subscribeRealtime() {
   if (state.mode !== 'cloud' || !sb || state.realtime) return;
@@ -452,6 +454,7 @@ function render() {
 
   renderNextNap(birth);
   renderBars();
+  renderGrowth();
   renderTimeline();
   renderButtons();
   renderSettings();
@@ -683,6 +686,119 @@ $('btn-export').addEventListener('click', async () => {
   } catch { /* usuário cancelou */ }
 });
 
+// Curvas OMS (meninos) — parametros LMS mensais 0-24 meses, extraidos das tabelas
+// expandidas oficiais da OMS (arquivos guardados em ~/workspace/bebe-app/dados-oms).
+const WHO_BOYS = {
+  weight: [[0.3487,3.3464,0.146],[0.2303,4.4525,0.1341],[0.1969,5.5714,0.1238],[0.174,6.369,0.1173],[0.1551,7.0069,0.1131],[0.1396,7.5077,0.1108],[0.1256,7.9389,0.1096],[0.1134,8.2963,0.109],[0.1019,8.62,0.1088],[0.0917,8.9019,0.1088],[0.0821,9.1618,0.1089],[0.0729,9.4136,0.1091],[0.0645,9.646,0.1092],[0.0563,9.8772,0.1095],[0.0487,10.0944,0.1098],[0.0412,10.3139,0.1101],[0.0343,10.5228,0.1104],[0.0276,10.7289,0.1108],[0.021,10.9393,0.1112],[0.0149,11.1409,0.1116],[0.0087,11.3478,0.1121],[0.0029,11.5474,0.1126],[-0.0029,11.7528,0.1132],[-0.0083,11.951,0.1137],[-0.0136,12.1482,0.1143]],
+  length: [[1,49.8842,0.0379],[1,54.6645,0.0356],[1,58.4384,0.0342],[1,61.4013,0.0333],[1,63.9041,0.0326],[1,65.8912,0.032],[1,67.6435,0.0316],[1,69.1615,0.0314],[1,70.6224,0.0312],[1,71.9714,0.0312],[1,73.2653,0.0312],[1,74.5464,0.0312],[1,75.7391,0.0314],[1,76.9304,0.0315],[1,78.0451,0.0317],[1,79.1613,0.032],[1,80.2113,0.0322],[1,81.234,0.0325],[1,82.2628,0.0328],[1,83.2318,0.0331],[1,84.2074,0.0334],[1,85.1291,0.0338],[1,86.0589,0.0341],[1,86.9392,0.0345],[1,87.8018,0.0348]],
+  head: [[1,34.4618,0.0369],[1,37.2435,0.0314],[1,39.1349,0.03],[1,40.5008,0.0292],[1,41.6401,0.0287],[1,42.5524,0.0284],[1,43.3393,0.0282],[1,43.9791,0.028],[1,44.5384,0.028],[1,45.0007,0.0279],[1,45.4004,0.0279],[1,45.7593,0.0279],[1,46.0637,0.0279],[1,46.3421,0.0279],[1,46.5834,0.0279],[1,46.809,0.0279],[1,47.0088,0.0279],[1,47.1936,0.028],[1,47.3718,0.028],[1,47.5341,0.028],[1,47.6931,0.0281],[1,47.8399,0.0281],[1,47.985,0.0281],[1,48.1198,0.0282],[1,48.2494,0.0282]],
+};
+const GROWTH_META = {
+  weight: { label: 'Peso', field: 'weightKg', fmt: (v) => `${String(v).replace('.', ',')} kg`, dec: 1 },
+  length: { label: 'Comprimento', field: 'lengthCm', fmt: (v) => `${Math.round(v)} cm`, dec: 0 },
+  head: { label: 'Cabecinha', field: 'headCm', fmt: (v) => `${String(v).replace('.', ',')} cm`, dec: 1 },
+};
+let growthMetric = 'weight';
+function lmsAt(metric, ageDays) {
+  const t = Math.min(24, Math.max(0, ageDays / 30.4375));
+  const i = Math.min(23, Math.floor(t)); const f = t - i;
+  const A = WHO_BOYS[metric][i]; const B = WHO_BOYS[metric][i + 1];
+  return [0, 1, 2].map((k) => A[k] + (B[k] - A[k]) * f);
+}
+function zOf(metric, value, ageDays) {
+  const [L, M, S] = lmsAt(metric, ageDays);
+  return Math.abs(L) < 1e-6 ? Math.log(value / M) / S : ((value / M) ** L - 1) / (L * S);
+}
+function pctOf(z) {
+  const s = z < 0 ? -1 : 1; const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return 50 * (1 + s * y);
+}
+function valueAtZ(metric, z, ageDays) {
+  const [L, M, S] = lmsAt(metric, ageDays);
+  return Math.abs(L) < 1e-6 ? M * Math.exp(S * z) : M * (1 + L * S * z) ** (1 / L);
+}
+function growthPoints(metric) {
+  const birth = state.baby?.birth_date;
+  if (!birth) return [];
+  const b0 = new Date(`${birth}T12:00:00`).getTime();
+  const field = GROWTH_META[metric].field;
+  return state.events
+    .filter((e) => e.type === 'weight' && e[field])
+    .map((e) => ({ ageDays: Math.max(0, (e.startsAt - b0) / 86400000), value: e[field] }))
+    .filter((p) => p.ageDays <= 731)
+    .sort((a, b) => a.ageDays - b.ageDays);
+}
+function renderGrowth() {
+  const box = $('growth-summary'); const svg = $('growth-chart');
+  if (!box || !svg) return;
+  const birth = state.baby?.birth_date;
+  const age = birth ? ageDaysOf(birth) : null;
+  $('growth-age').textContent = age !== null && age >= 0 ? `${age} dias de vida` : '';
+  if (!birth || age === null || age < 0) {
+    box.innerHTML = '<p class="muted">As curvas ganham vida quando o Henrique nascer: a primeira pesagem na maternidade já vira o primeiro ponto aqui. 💛</p>';
+    svg.innerHTML = '';
+    return;
+  }
+  const lasts = ['weight', 'length', 'head']
+    .map((m) => ({ m, pts: growthPoints(m) }))
+    .filter((x) => x.pts.length);
+  if (!lasts.length) {
+    box.innerHTML = '<p class="muted">Nenhuma medida ainda. Registre em <strong>Medidas</strong> (peso, comprimento e cabecinha) e o percentil de cada uma aparece aqui.</p>';
+    svg.innerHTML = '';
+    return;
+  }
+  box.innerHTML = lasts.map(({ m, pts }) => {
+    const last = pts[pts.length - 1];
+    const p = pctOf(zOf(m, last.value, last.ageDays));
+    const pTxt = p < 1 ? '<1' : p > 99 ? '>99' : String(Math.round(p));
+    return `<p class="growth-line"><strong>${GROWTH_META[m].label}:</strong> ${GROWTH_META[m].fmt(last.value)} <span class="pct-chip">percentil ${pTxt}</span> <span class="muted">aos ${Math.round(last.ageDays)} dias</span></p>`;
+  }).join('');
+  drawGrowthChart(growthMetric);
+}
+function drawGrowthChart(metric) {
+  const svg = $('growth-chart');
+  const meta = GROWTH_META[metric];
+  const pts = growthPoints(metric);
+  const W = 340; const H = 190; const L = 36; const R = 8; const T = 8; const B = 22;
+  const maxAgeM = Math.min(24, Math.max(6, Math.ceil((pts.length ? pts[pts.length - 1].ageDays : 0) / 30.4375) + 1));
+  const ages = []; for (let a = 0; a <= maxAgeM * 30.4375; a += 7.6) ages.push(a);
+  const curve = (z) => ages.map((d) => valueAtZ(metric, z, d));
+  const p3 = curve(-1.8808); const p50 = curve(0); const p97 = curve(1.8808);
+  let yMin = Math.min(...p3, ...pts.map((p) => p.value));
+  let yMax = Math.max(...p97, ...pts.map((p) => p.value));
+  const pad = (yMax - yMin) * 0.08 || 1; yMin -= pad; yMax += pad;
+  const X = (d) => L + (d / (maxAgeM * 30.4375)) * (W - L - R);
+  const Y = (v) => T + (1 - (v - yMin) / (yMax - yMin)) * (H - T - B);
+  const line = (vals) => vals.map((v, i) => `${i ? 'L' : 'M'}${X(ages[i]).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  const band = `${line(p97)} ${[...p3].reverse().map((v, i) => `L${X(ages[ages.length - 1 - i]).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')} Z`;
+  const fmtY = (v) => v.toFixed(meta.dec).replace('.', ',');
+  let h = '';
+  h += `<path d="${band}" fill="#d49174" opacity="0.13"/>`;
+  h += `<path d="${line(p3)}" fill="none" stroke="#b9c8bb" stroke-width="1"/>`;
+  h += `<path d="${line(p97)}" fill="none" stroke="#b9c8bb" stroke-width="1"/>`;
+  h += `<path d="${line(p50)}" fill="none" stroke="#6e9e7d" stroke-width="1.6" stroke-dasharray="5 4"/>`;
+  h += `<text x="${L - 4}" y="${Y(yMax) + 3}" text-anchor="end" class="g-axis">${fmtY(yMax)}</text>`;
+  h += `<text x="${L - 4}" y="${Y(yMin) + 3}" text-anchor="end" class="g-axis">${fmtY(yMin)}</text>`;
+  h += `<text x="${L}" y="${H - 6}" class="g-axis">nasc.</text>`;
+  h += `<text x="${X(maxAgeM * 30.4375 / 2)}" y="${H - 6}" text-anchor="middle" class="g-axis">${Math.round(maxAgeM / 2)}m</text>`;
+  h += `<text x="${X(maxAgeM * 30.4375)}" y="${H - 6}" text-anchor="end" class="g-axis">${maxAgeM} meses</text>`;
+  h += `<text x="${W - R}" y="${T + 8}" text-anchor="end" class="g-axis">faixa: percentis 3–97 · linha do meio: 50</text>`;
+  if (pts.length) {
+    h += `<path d="${pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.ageDays).toFixed(1)},${Y(p.value).toFixed(1)}`).join(' ')}" fill="none" stroke="#d49174" stroke-width="2"/>`;
+    h += pts.map((p) => `<circle cx="${X(p.ageDays).toFixed(1)}" cy="${Y(p.value).toFixed(1)}" r="3.4" fill="#d49174" stroke="#fff" stroke-width="1.4"/>`).join('');
+  } else {
+    h += `<text x="${(L + W - R) / 2}" y="${H / 2}" text-anchor="middle" class="g-axis">sem medidas de ${meta.label.toLowerCase()} ainda</text>`;
+  }
+  svg.innerHTML = h;
+}
+document.querySelectorAll('.growth-tab').forEach((b) => b.addEventListener('click', () => {
+  growthMetric = b.dataset.metric;
+  document.querySelectorAll('.growth-tab').forEach((x) => x.classList.toggle('is-active', x === b));
+  drawGrowthChart(growthMetric);
+}));
+
 // ---------------- sons para dormir ----------------
 // Estrategia robusta: o som e GERADO como arquivo (WAV) dentro do aparelho e tocado
 // pelo player de audio comum da pagina. Funciona em qualquer navegador que toque midia.
@@ -902,6 +1018,24 @@ document.querySelectorAll('.btn-install').forEach((b) => b.addEventListener('cli
     document.querySelectorAll('.install-help').forEach((p) => { p.hidden = false; });
   }
 }));
+
+
+// ---------------- acoes rapidas (atalhos do icone) ----------------
+let pendingQuick = null;
+try { pendingQuick = new URLSearchParams(window.location.search).get('quick'); } catch { /* ignora */ }
+function runQuickAction() {
+  if (!pendingQuick) return;
+  const q = pendingQuick; pendingQuick = null;
+  try { history.replaceState(null, '', window.location.pathname); } catch { /* ignora */ }
+  if (!state.baby) return;
+  if (q === 'diaper-wet') $('btn-diaper-wet').click();
+  else if (q === 'diaper-dirty') $('btn-diaper-dirty').click();
+  else if (q === 'sleep') $('btn-sleep').click();
+  else if (q === 'contraction') {
+    $('btn-contraction').click();
+    document.querySelector('.contractions-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
 
 // ---------------- relogio e inicio ----------------
 setInterval(() => {

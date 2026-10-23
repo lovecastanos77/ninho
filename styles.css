@@ -74,3 +74,12 @@
 
 .form-ok{color:#3c7a52;font-size:13.5px;margin:0;line-height:1.5}
 [data-theme="dark"] .form-ok{color:#8fd0a5}
+
+.growth-card{background:#fff;border:1px solid #eeebe5;border-radius:23px;padding:24px;min-height:0}
+.growth-line{margin:6px 0;font-size:14px;color:#28433d}
+.pct-chip{background:#e1e9df;color:#294f47;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+.growth-tabs{display:flex;gap:8px;margin:14px 0 6px}
+.growth-tab{border:1px solid #e7e2da;background:#fffaf5;color:#39544d;border-radius:20px;padding:7px 14px;font-size:13px;font-weight:700}
+.growth-tab.is-active{background:#294f47;color:#fff;border-color:#294f47}
+#growth-chart{width:100%;height:auto;display:block}
+#growth-chart .g-axis{font-size:8.5px;fill:#83918b;font-family:'DM Sans',sans-serif}

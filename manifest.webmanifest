@@ -1,1 +1,35 @@
-{"background_color":"#10151c","display":"standalone","icons":[{"purpose":"any maskable","sizes":"any","src":"icon.svg","type":"image/svg+xml"}],"name":"Ninho — diário do bebê","scope":"./","short_name":"Ninho","start_url":"./","theme_color":"#10151c"}
+{
+  "name": "Ninho — diário do bebê",
+  "short_name": "Ninho",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10151c",
+  "theme_color": "#10151c",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Fralda · xixi",
+      "url": "./?quick=diaper-wet"
+    },
+    {
+      "name": "Fralda · cocô",
+      "url": "./?quick=diaper-dirty"
+    },
+    {
+      "name": "Sono · começar ou encerrar",
+      "url": "./?quick=sleep"
+    },
+    {
+      "name": "Contração · começar ou parar",
+      "url": "./?quick=contraction"
+    }
+  ]
+}

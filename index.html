@@ -105,6 +105,18 @@
         </article>
       </section>
 
+      <section class="card growth-card" aria-label="Crescimento">
+        <div class="card-heading"><span class="overline">CRESCIMENTO · OMS</span><span class="muted" id="growth-age"></span></div>
+        <div id="growth-summary"><p class="muted">Carregando…</p></div>
+        <div class="growth-tabs" role="group" aria-label="Escolher medida">
+          <button type="button" class="growth-tab is-active" data-metric="weight">Peso</button>
+          <button type="button" class="growth-tab" data-metric="length">Comprimento</button>
+          <button type="button" class="growth-tab" data-metric="head">Cabecinha</button>
+        </div>
+        <svg id="growth-chart" viewBox="0 0 340 190" role="img" aria-label="Gráfico de crescimento com percentis da OMS"></svg>
+        <p class="muted tiny">Curvas da OMS para meninos (0-24 meses). Percentil é referência da população — não é nota; o acompanhamento é com o pediatra.</p>
+      </section>
+
       <section class="card actions-card" aria-label="Registrar agora">
         <div class="card-heading"><span class="overline">REGISTRAR AGORA</span><span class="muted" id="active-timers-label"></span></div>
         <div class="action-grid">
