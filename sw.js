@@ -1,6 +1,6 @@
 // Ninho — service worker v2: rede primeiro (atualizacoes chegam na hora),
 // cache como reserva para abrir offline. Dados da nuvem sempre vem da rede.
-const CACHE = 'ninho-v2';
+const CACHE = 'ninho-v3';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './config.js', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -16,6 +16,17 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin || event.request.method !== 'GET') return;
+  // Sons (mp3): cache primeiro — depois de baixados, tocam ate sem internet.
+  if (url.pathname.endsWith('.mp3')) {
+    event.respondWith(
+      caches.match(event.request).then((hit) => hit || fetch(event.request).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(event.request, copy));
+        return res;
+      }))
+    );
+    return;
+  }
   event.respondWith(
     fetch(event.request).then((res) => {
       const copy = res.clone();

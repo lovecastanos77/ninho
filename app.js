@@ -810,11 +810,17 @@ async function startSound() {
   const type = $('sound-type').value;
   const label = $('sound-type').selectedOptions[0]?.textContent || 'som';
   setSoundStatus('Preparando o som…');
-  const blob = await renderSoundBlob(type);
-  if (soundUrl) URL.revokeObjectURL(soundUrl);
-  soundUrl = URL.createObjectURL(blob);
   if (!soundEl) { soundEl = new Audio(); soundEl.loop = true; soundEl.preload = 'auto'; }
-  soundEl.src = soundUrl;
+  if (type.startsWith('file:')) {
+    // cancoes enviadas pelo Marcos: arquivo pronto na pasta sounds/
+    if (soundUrl) { URL.revokeObjectURL(soundUrl); soundUrl = null; }
+    soundEl.src = `sounds/${type.slice(5)}`;
+  } else {
+    const blob = await renderSoundBlob(type);
+    if (soundUrl) URL.revokeObjectURL(soundUrl);
+    soundUrl = URL.createObjectURL(blob);
+    soundEl.src = soundUrl;
+  }
   soundEl.volume = Number($('sound-volume').value) / 100;
   await soundEl.play();
   soundOn = true;
