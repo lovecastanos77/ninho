@@ -1,6 +1,6 @@
 // Ninho — service worker v2: rede primeiro (atualizacoes chegam na hora),
 // cache como reserva para abrir offline. Dados da nuvem sempre vem da rede.
-const CACHE = 'ninho-v7';
+const CACHE = 'ninho-v8';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './config.js', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {

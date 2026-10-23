@@ -142,3 +142,9 @@ body.has-bnav{padding-bottom:78px}
 .measure-help p{font-size:13.5px;line-height:1.6;color:#5c7268;margin:6px 0}
 .measure-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0ece5}
 .tab-panel>.card,.tab-panel>.dashboard-grid,.tab-panel>.lower-grid{margin-bottom:22px}
+
+.card-heading.collapsible{cursor:pointer}
+.card-heading.collapsible::after{content:'▾';color:#a78b77;font-size:15px;margin-left:10px}
+.card.is-collapsed .card-heading.collapsible::after{content:'▸'}
+.card.is-collapsed>*:not(.card-heading){display:none}
+.card.is-collapsed{min-height:0}

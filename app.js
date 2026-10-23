@@ -13,9 +13,9 @@ async function importSdk(url, ms) {
   } finally { clearTimeout(timer); }
 }
 try {
-  ({ createClient } = await importSdk('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm', 9000));
+  ({ createClient } = await importSdk('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/+esm', 9000));
 } catch {
-  try { ({ createClient } = await importSdk('https://unpkg.com/@supabase/supabase-js@2/+esm', 9000)); }
+  try { ({ createClient } = await importSdk('https://esm.run/@supabase/supabase-js@2.49.1', 9000)); }
   catch { createClient = null; }
 }
 
@@ -208,6 +208,24 @@ $('bottom-nav').addEventListener('click', (e) => {
   const b = e.target.closest('[data-apptab]');
   if (b) { setTab(b.dataset.apptab); window.scrollTo({ top: 0, behavior: 'smooth' }); }
 });
+
+// Cartoes minimizaveis: tocar no topo do cartao recolhe/expande (lembra a escolha).
+const COLLAPSE_KEY = 'ninho-collapsed-v1';
+let collapsedSet = new Set();
+try { collapsedSet = new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]')); } catch { /* ignora */ }
+document.querySelectorAll('[data-collapse]').forEach((card) => {
+  const key = card.dataset.collapse;
+  if (collapsedSet.has(key)) card.classList.add('is-collapsed');
+  const head = card.querySelector('.card-heading');
+  if (!head) return;
+  head.classList.add('collapsible');
+  head.title = 'Tocar para minimizar ou expandir';
+  head.addEventListener('click', () => {
+    card.classList.toggle('is-collapsed');
+    if (card.classList.contains('is-collapsed')) collapsedSet.add(key); else collapsedSet.delete(key);
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsedSet])); } catch { /* ignora */ }
+  });
+});
 let toastTimer = null;
 function toast(msg) {
   const t = $('toast');
@@ -245,12 +263,10 @@ async function ensureAnonSession() {
 // se o navegador limpar um, o outro devolve a entrada sem digitar de novo.
 function saveToken(t) {
   try { localStorage.setItem('ninho-token', t); } catch { /* ignora */ }
-  try { document.cookie = `ninho-token=${encodeURIComponent(t)}; max-age=${60 * 60 * 24 * 365}; path=/ninho/; SameSite=Lax`; } catch { /* ignora */ }
 }
 function readToken() {
   try { const v = localStorage.getItem('ninho-token'); if (v) return v; } catch { /* ignora */ }
-  const m = document.cookie.match(/(?:^|; )ninho-token=([^;]*)/);
-  return m ? decodeURIComponent(m[1]) : null;
+  return null;
 }
 function clearToken() {
   try { localStorage.removeItem('ninho-token'); localStorage.removeItem('ninho-pending-token'); } catch { /* ignora */ }
@@ -449,7 +465,7 @@ function eventLabel(e) {
     case 'medicine': return `Remédio${e.note ? ` · ${esc(e.note)}` : ''}`;
     case 'vaccine': return `Vacina · ${esc(vaccineName(e.note))}`;
     case 'vitamin': return 'Vitamina D';
-    default: return e.note || 'Nota';
+    default: return esc(e.note || 'Nota');
   }
 }
 function eventWhen(e) {
@@ -1396,13 +1412,21 @@ renderContractions();
   // Mostra a tela de entrada NA HORA: a rede (sessao/token) decide depois se troca de tela.
   show('auth-view');
   window.__ninhoBooted = true;
+  // Seguranca: o token nao fica na URL (historico/compartilhamentos) nem em cookie.
+  const incomingToken = new URLSearchParams(window.location.search).get('token');
+  if (incomingToken) {
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete('token');
+    history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+  }
+  try { document.cookie = 'ninho-token=; max-age=0; path=/ninho/; SameSite=Lax'; } catch { /* ignora */ }
   try {
     const params = new URLSearchParams(window.location.search);
     if (params.get('local') === '1') { enterLocal(); return; } // atalho interno de testes
     if (sb) {
       const { data: { session } } = await sb.auth.getSession();
       if (session) { await afterAuth(); return; }
-      const urlToken = params.get('token');
+      const urlToken = incomingToken;
       const savedToken = urlToken || readToken();
       if (savedToken) {
         const r = await enterWithToken(savedToken);
