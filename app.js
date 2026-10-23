@@ -186,35 +186,56 @@ $('auth-form').addEventListener('submit', async (ev) => {
   if (error) { $('auth-error').textContent = 'Não consegui enviar o link. Confira o e-mail e tente de novo.'; return; }
   $('auth-info').textContent = `Link enviado para ${email}! Abra o e-mail e toque no link — você entra direto, sem senha. Pode fechar esta tela.`;
 });
-$('code-form').addEventListener('submit', async (ev) => {
-  ev.preventDefault();
-  if (!sb) { $('auth-error').textContent = 'A nuvem não está configurada neste aparelho.'; return; }
-  const code = $('family-code').value.trim();
-  $('auth-error').textContent = ''; $('auth-info').textContent = '';
-  // sessao anonima: identidade deste aparelho, sem e-mail nem senha
+async function ensureAnonSession() {
   const { data: { session } } = await sb.auth.getSession();
-  if (!session) {
-    const { error } = await sb.auth.signInAnonymously();
-    if (error) {
-      $('auth-error').textContent = 'A entrada por código ainda não foi ligada no Supabase (acesso anônimo). Use o link por e-mail, que já funciona.';
-      return;
-    }
+  if (session) return true;
+  const { error } = await sb.auth.signInAnonymously();
+  if (error) {
+    $('auth-error').textContent = 'A entrada por token ainda não foi ligada no Supabase (acesso anônimo). Use o link por e-mail por enquanto.';
+    return false;
   }
+  return true;
+}
+// Entrada com o token da familia. Retorna: 'app' | 'setup' (token livre, 1o uso) | 'erro'
+async function enterWithToken(token) {
+  if (!sb) { $('auth-error').textContent = 'A nuvem não está configurada neste aparelho.'; return 'erro'; }
+  if (!(await ensureAnonSession())) return 'erro';
   const { data: { user } } = await sb.auth.getUser();
   state.user = user; state.mode = 'cloud';
-  if (code) {
-    const { error } = await sb.rpc('join_family_by_code', { p_code: code });
-    if (error) { $('auth-error').textContent = 'Código não encontrado. Confira e tente de novo.'; return; }
+  const { data, error } = await sb.rpc('enter_with_token', { p_token: token });
+  if (error) {
+    $('auth-error').textContent = String(error.message).includes('enter_with_token')
+      ? 'Falta rodar o supabase/schema_v3.sql no Supabase para o token funcionar.'
+      : 'Token não encontrado. Confira os caracteres e tente de novo.';
+    return 'erro';
   }
+  if (!data) {
+    // token existe, mas a familia ainda nao foi criada: guarda para vincular no cadastro
+    localStorage.setItem('ninho-pending-token', token);
+    show('setup-view');
+    return 'setup';
+  }
+  state.family = data;
+  localStorage.setItem('ninho-token', token);
+  localStorage.removeItem('ninho-pending-token');
   const ok = await loadFamilyContext();
-  if (ok) { await enterApp(); } else { show('setup-view'); }
+  if (ok) { await enterApp(); return 'app'; }
+  show('setup-view');
+  return 'setup';
+}
+$('token-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  $('auth-error').textContent = ''; $('auth-info').textContent = '';
+  const token = $('access-token').value.trim();
+  if (token) await enterWithToken(token);
 });
-$('auth-local').addEventListener('click', () => enterLocal());
 $('setup-logout').addEventListener('click', logout);
 $('btn-logout').addEventListener('click', logout);
 async function logout() {
   if (state.realtime) { sb.removeChannel(state.realtime); state.realtime = null; }
   if (state.mode === 'cloud' && sb) await sb.auth.signOut();
+  localStorage.removeItem('ninho-token');
+  localStorage.removeItem('ninho-pending-token');
   state.user = null; state.family = null; state.baby = null; state.events = [];
   show('auth-view');
 }
@@ -253,6 +274,13 @@ $('family-form').addEventListener('submit', async (ev) => {
     const { data: baby, error: e2 } = await sb.from('babies').insert({ family_id: familyId, name, birth_date: birth }).select().single();
     if (e2) throw e2;
     state.baby = baby;
+    // primeiro uso com token: vincula o token a esta familia para sempre
+    const pending = localStorage.getItem('ninho-pending-token');
+    if (pending) {
+      const { error: e3 } = await sb.rpc('claim_token_family', { p_token: pending, p_family_id: familyId });
+      if (!e3) localStorage.setItem('ninho-token', pending);
+      localStorage.removeItem('ninho-pending-token');
+    }
     await enterApp();
   } catch { $('setup-error').textContent = 'Não consegui salvar. Tente de novo.'; }
 });
@@ -432,12 +460,15 @@ function renderSettings() {
   const growth = state.events.find((e) => e.type === 'weight');
   $('growth-info').textContent = growth ? `Última pesagem: ${eventLabel(growth)} · ${new Date(growth.startsAt).toLocaleDateString('pt-BR')}` : '';
   if (state.mode === 'cloud' && state.family) {
-    $('family-info').textContent = `${state.family.name} · conta ${state.user?.email || ''}`;
+    $('family-info').textContent = `${state.family.name}${state.user?.email ? ` · conta ${state.user.email}` : ''}`;
     $('invite-code').textContent = state.family.invite_code || '—';
   } else {
     $('family-info').textContent = 'Modo neste aparelho (sem sincronização).';
-    $('invite-code').textContent = '— (entre com uma conta para convidar)';
+    $('invite-code').textContent = '—';
   }
+  $('token-info').textContent = localStorage.getItem('ninho-token')
+    ? '🔑 Este aparelho entra automaticamente com o token da família.'
+    : '';
 }
 function markBtn(id, active, label) {
   const b = $(id);
@@ -653,6 +684,28 @@ $('btn-contraction').addEventListener('click', () => {
 });
 $('btn-contraction-clear').addEventListener('click', () => { local.contractions = []; contractionActive = null; saveLocal(); renderContractions(); });
 
+// ---------------- botao instalar no celular ----------------
+let deferredInstall = null;
+function showInstallButtons() {
+  document.querySelectorAll('.btn-install').forEach((b) => { b.hidden = false; });
+}
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; showInstallButtons(); });
+window.addEventListener('appinstalled', () => {
+  deferredInstall = null;
+  document.querySelectorAll('.btn-install').forEach((b) => { b.hidden = true; });
+  toast('Ninho instalado ✓ Procure o ícone na tela inicial.');
+});
+if (/iphone|ipad/i.test(navigator.userAgent) && !window.navigator.standalone) showInstallButtons();
+document.querySelectorAll('.btn-install').forEach((b) => b.addEventListener('click', async () => {
+  if (deferredInstall) {
+    deferredInstall.prompt();
+    await deferredInstall.userChoice;
+    deferredInstall = null;
+  } else {
+    document.querySelectorAll('.install-help').forEach((p) => { p.hidden = false; });
+  }
+}));
+
 // ---------------- relogio e inicio ----------------
 setInterval(() => {
   if (!$('app-view').hidden && state.baby) render();
@@ -661,9 +714,17 @@ setInterval(() => {
 applyTheme();
 renderContractions();
 (async function boot() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('local') === '1') { enterLocal(); return; } // atalho interno de testes
   if (sb) {
     const { data: { session } } = await sb.auth.getSession();
     if (session) { await afterAuth(); return; }
+    const urlToken = params.get('token');
+    const savedToken = urlToken || localStorage.getItem('ninho-token');
+    if (savedToken) {
+      const r = await enterWithToken(savedToken);
+      if (r !== 'erro') return;
+    }
   }
   show('auth-view');
 })();

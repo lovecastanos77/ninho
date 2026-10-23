@@ -28,25 +28,25 @@
       <p class="muted">Nada de decorar senha: escolha uma das portas abaixo e o Ninho lembra de você neste aparelho.</p>
       <div class="stack">
         <div class="subcard">
+          <h2>Token de acesso</h2>
+          <p class="muted">Cole o token da sua família — a chave que a Mica gerou — e entre direto. Este aparelho lembra dele, você não precisa colar de novo.</p>
+          <form id="token-form" class="stack">
+            <label>Seu token<input id="access-token" maxlength="40" placeholder="NNH-....-....-....-...." autocomplete="off"></label>
+            <button class="primary-button full" type="submit">Entrar com o token</button>
+          </form>
+        </div>
+        <div class="subcard">
           <h2>Link mágico por e-mail</h2>
-          <p class="muted">Você recebe um link-token no e-mail; tocou nele, entrou.</p>
+          <p class="muted">Alternativa: você recebe um link no e-mail; tocou nele, entrou.</p>
           <form id="auth-form" class="stack">
             <label>Seu e-mail<input id="auth-email" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
             <button class="primary-button full" type="submit" id="auth-submit">Receber meu link de acesso</button>
           </form>
         </div>
-        <div class="subcard">
-          <h2>Código da família</h2>
-          <p class="muted">Sua parceira(o) já criou a família? Cole o código de convite e entre direto, sem e-mail.</p>
-          <form id="code-form" class="join-row">
-            <input id="family-code" maxlength="12" placeholder="CÓDIGO" autocomplete="off">
-            <button class="primary-button" type="submit">Entrar</button>
-          </form>
-          <p class="muted tiny">É a primeira vez da família? Use o link por e-mail acima e crie a família na próxima tela.</p>
-        </div>
         <p id="auth-error" class="form-error" role="alert"></p>
         <p id="auth-info" class="form-ok" role="status"></p>
-        <button class="text-button" type="button" id="auth-local">Continuar sem conta (só neste aparelho)</button>
+        <button class="primary-button full btn-install" type="button" hidden>📲 Instalar o Ninho neste celular</button>
+        <p class="install-help muted tiny" hidden>Para instalar: no Android (Chrome), menu ⋮ → “Adicionar à tela inicial”. No iPhone (Safari), botão Compartilhar → “Adicionar à Tela de Início”.</p>
       </div>
     </section>
 
@@ -169,6 +169,9 @@
         <p class="muted">Código de convite (passe para sua parceira(o) entrar na mesma família):</p>
         <p class="invite-code" id="invite-code">—</p>
         <p class="muted" id="growth-info"></p>
+        <p class="muted" id="token-info"></p>
+        <button class="primary-button full btn-install" type="button" hidden>📲 Instalar o Ninho neste celular</button>
+        <p class="install-help muted tiny" hidden>Para instalar: no Android (Chrome), menu ⋮ → “Adicionar à tela inicial”. No iPhone (Safari), botão Compartilhar → “Adicionar à Tela de Início”.</p>
         <div class="settings-row">
           <button class="text-button" id="btn-export" type="button">Compartilhar resumo (pediatra)</button>
           <button class="text-button" id="btn-logout" type="button">Sair</button>
