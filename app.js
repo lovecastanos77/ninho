@@ -332,7 +332,12 @@ $('join-form').addEventListener('submit', async (ev) => {
 function enterLocal() {
   state.mode = 'local';
   state.user = null;
-  state.baby = { id: 'local', name: local.profile.name || 'Meu bebê', birth_date: local.profile.birth || '' };
+  state.baby = {
+    id: 'local', name: local.profile.name || 'Meu bebê', birth_date: local.profile.birth || '',
+    birth_time: local.profile.birthTime || '', birth_weight_kg: local.profile.birthWeight ?? null,
+    birth_length_cm: local.profile.birthLength ?? null, birth_head_cm: local.profile.birthHead ?? null,
+    birth_notes: local.profile.birthNotes || '',
+  };
   state.family = null;
   state.events = [...local.events].sort((a, b) => b.startsAt - a.startsAt);
   show('app-view');
@@ -455,6 +460,7 @@ function render() {
   renderNextNap(birth);
   renderBars();
   renderGrowth();
+  renderBirth();
   renderTimeline();
   renderButtons();
   renderSettings();
@@ -648,6 +654,11 @@ $('profile-button').addEventListener('click', () => {
   if (!state.baby) return;
   $('baby-name').value = state.baby.name || '';
   $('baby-birth').value = state.baby.birth_date || '';
+  $('baby-birth-time').value = (state.baby.birth_time || '').slice(0, 5);
+  $('baby-birth-weight').value = state.baby.birth_weight_kg ?? '';
+  $('baby-birth-length').value = state.baby.birth_length_cm ?? '';
+  $('baby-birth-head').value = state.baby.birth_head_cm ?? '';
+  $('baby-birth-notes').value = state.baby.birth_notes || '';
   $('profile-dialog').showModal();
 });
 $('profile-form').addEventListener('submit', async (ev) => {
@@ -655,15 +666,37 @@ $('profile-form').addEventListener('submit', async (ev) => {
   const name = $('baby-name').value.trim();
   const birth = $('baby-birth').value;
   if (!name || !birth) return;
+  const numOrNull = (v) => { const n = Number(String(v).replace(',', '.')); return v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
+  const birthFields = {
+    birth_time: $('baby-birth-time').value || null,
+    birth_weight_kg: numOrNull($('baby-birth-weight').value),
+    birth_length_cm: numOrNull($('baby-birth-length').value),
+    birth_head_cm: numOrNull($('baby-birth-head').value),
+    birth_notes: $('baby-birth-notes').value.trim() || null,
+  };
   if (state.mode === 'cloud') {
-    const { error } = await sb.from('babies').update({ name, birth_date: birth }).eq('id', state.baby.id);
-    if (error) { toast('Não consegui salvar o perfil.'); return; }
+    const full = await sb.from('babies').update({ name, birth_date: birth, ...birthFields }).eq('id', state.baby.id);
+    if (full.error) {
+      // banco ainda sem as colunas do nascimento (schema v4): salva o basico e avisa
+      const basic = await sb.from('babies').update({ name, birth_date: birth }).eq('id', state.baby.id);
+      if (basic.error) { toast('Não consegui salvar o perfil.'); return; }
+      toast('Nome e data salvos. Os dados do nascimento pedem um passo a mais — fala com a Mica.');
+    }
   } else {
-    local.profile = { name, birth }; saveLocal();
+    local.profile = {
+      name, birth,
+      birthTime: birthFields.birth_time || '',
+      birthWeight: birthFields.birth_weight_kg,
+      birthLength: birthFields.birth_length_cm,
+      birthHead: birthFields.birth_head_cm,
+      birthNotes: birthFields.birth_notes || '',
+    };
+    saveLocal();
   }
-  state.baby.name = name; state.baby.birth_date = birth;
+  Object.assign(state.baby, { name, birth_date: birth, ...birthFields });
   $('profile-dialog').close();
   render();
+  toast('Perfil salvo 💛');
 });
 
 // ---------------- compartilhar resumo (pediatra) ----------------
@@ -724,12 +757,37 @@ function growthPoints(metric) {
   if (!birth) return [];
   const b0 = new Date(`${birth}T12:00:00`).getTime();
   const field = GROWTH_META[metric].field;
-  return state.events
+  const pts = state.events
     .filter((e) => e.type === 'weight' && e[field])
     .map((e) => ({ ageDays: Math.max(0, (e.startsAt - b0) / 86400000), value: e[field] }))
     .filter((p) => p.ageDays <= 731)
     .sort((a, b) => a.ageDays - b.ageDays);
+  const birthVal = metric === 'weight' ? state.baby?.birth_weight_kg : metric === 'length' ? state.baby?.birth_length_cm : state.baby?.birth_head_cm;
+  if (birthVal && !pts.some((p) => p.ageDays <= 1)) pts.unshift({ ageDays: 0, value: Number(birthVal) });
+  return pts;
 }
+
+function renderBirth() {
+  const card = $('birth-card');
+  if (!card || !state.baby) return;
+  const b = state.baby;
+  const birth = b.birth_date || '';
+  const age = birth ? ageDaysOf(birth) : null;
+  const hasData = b.birth_time || b.birth_weight_kg || b.birth_length_cm || b.birth_head_cm || b.birth_notes;
+  if (!birth || age === null || age < 0 || !hasData) { card.hidden = true; return; }
+  const dateStr = new Date(`${birth}T12:00:00`).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const parts = [`${b.name} nasceu em ${dateStr}`];
+  if (b.birth_time) parts[0] += `, às ${String(b.birth_time).slice(0, 5)}`;
+  const medidas = [];
+  if (b.birth_weight_kg) medidas.push(`${String(b.birth_weight_kg).replace('.', ',')} kg`);
+  if (b.birth_length_cm) medidas.push(`${String(b.birth_length_cm).replace('.', ',')} cm`);
+  if (b.birth_head_cm) medidas.push(`cabecinha de ${String(b.birth_head_cm).replace('.', ',')} cm`);
+  $('birth-line').textContent = parts[0] + (medidas.length ? ` — com ${medidas.join(' · ')}.` : '.');
+  $('birth-notes').textContent = b.birth_notes || '';
+  $('birth-notes').style.display = b.birth_notes ? '' : 'none';
+  card.hidden = false;
+}
+
 function renderGrowth() {
   const box = $('growth-summary'); const svg = $('growth-chart');
   if (!box || !svg) return;

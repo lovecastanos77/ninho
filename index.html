@@ -105,6 +105,13 @@
         </article>
       </section>
 
+      <section class="card birth-card" id="birth-card" hidden>
+        <div class="card-heading"><span class="overline">NASCIMENTO</span><span aria-hidden="true">🌟</span></div>
+        <p class="birth-line" id="birth-line"></p>
+        <p class="birth-notes" id="birth-notes"></p>
+        <p class="muted tiny">Para editar, toque no nome do bebê no topo da tela (Perfil do bebê).</p>
+      </section>
+
       <section class="card growth-card" aria-label="Crescimento">
         <div class="card-heading"><span class="overline">CRESCIMENTO · OMS</span><span class="muted" id="growth-age"></span></div>
         <div id="growth-summary"><p class="muted">Carregando…</p></div>
@@ -136,6 +143,22 @@
           <button class="action-button" id="btn-manual" type="button"><span>＋</span> Registro manual</button>
         </div>
         <p class="muted tiny">Botões com cronômetro (sono, peito, barriguinha): toque para começar e de novo para encerrar. Fralda e banho são 1 toque só.</p>
+        <details class="icons-help">
+          <summary>O que significa cada botão?</summary>
+          <ul>
+            <li><strong>☾ Sono</strong> — cronômetro do soninho: toque quando ele dormir e de novo quando acordar. É a base da estimativa da próxima soneca.</li>
+            <li><strong>◐ ◑ Peito esquerdo / direito</strong> — mamada no peito, com cronômetro. O app lembra o último lado e sugere o próximo.</li>
+            <li><strong>🍼 Mamadeira</strong> — registra o volume em ml, de leite materno ou fórmula.</li>
+            <li><strong>⚗ Ordenha</strong> — quando a mamãe tira leite com a bombinha: anota quantos ml foram guardados.</li>
+            <li><strong>💧 💩 Fraldas</strong> — xixi, cocô ou os dois, num toque só. A contagem de fraldas ajuda a saber se ele está mamando o suficiente.</li>
+            <li><strong>🐢 Barriguinha</strong> — o famoso <em>tummy time</em>: um tempinho de bruços, sempre acordado e com um adulto olhando. Fortalece o pescocinho e as costas e ajuda a cabecinha a não ficar achatada atrás. No começo, 1 a 2 minutinhos por vez já valem muito.</li>
+            <li><strong>🛁 Banho</strong> — marca o banho do dia.</li>
+            <li><strong>⚖ Peso e medidas</strong> — peso, comprimento e cabecinha; alimenta as curvas de crescimento e os percentis da OMS.</li>
+            <li><strong>🌡 Temperatura</strong> — anota a temperatura quando medir; nos primeiros meses, isso importa bastante.</li>
+            <li><strong>💊 Remédio</strong> — qual remédio e a dose, para ninguém repetir nem esquecer.</li>
+            <li><strong>＋ Registro manual</strong> — qualquer outra coisa que mereça ficar guardada: um sorriso, uma cólica, uma visita especial...</li>
+          </ul>
+        </details>
       </section>
 
       <section class="lower-grid">
@@ -214,7 +237,7 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <dialog id="profile-dialog" class="modal"><form id="profile-form" method="dialog"><div class="modal-head"><h2>Perfil do bebê</h2><button class="close-button" type="button" data-close="profile-dialog" aria-label="Fechar">×</button></div><p>Essas informações ajudam a estimar a próxima janela de descanso.</p><label>Nome do bebê<input id="baby-name" name="baby-name" maxlength="40" required></label><label>Data de nascimento (ou prevista)<input id="baby-birth" name="baby-birth" type="date" required></label><button class="primary-button full" type="submit">Salvar perfil</button></form></dialog>
+  <dialog id="profile-dialog" class="modal"><form id="profile-form" method="dialog"><div class="modal-head"><h2>Perfil do bebê</h2><button class="close-button" type="button" data-close="profile-dialog" aria-label="Fechar">×</button></div><p>Nome e data guiam as estimativas de rotina. Os dados do nascimento viram um cartão de recordação na tela inicial — e peso, comprimento e cabecinha já entram como o primeiro ponto das curvas de crescimento.</p><label>Nome do bebê<input id="baby-name" name="baby-name" maxlength="40" required></label><label>Data de nascimento (ou prevista)<input id="baby-birth" name="baby-birth" type="date" required></label><label>Hora do nascimento<input id="baby-birth-time" name="baby-birth-time" type="time"></label><label>Peso ao nascer (kg)<input id="baby-birth-weight" name="baby-birth-weight" type="number" step="0.001" min="0" inputmode="decimal" placeholder="ex.: 3,350"></label><label>Comprimento ao nascer (cm)<input id="baby-birth-length" name="baby-birth-length" type="number" step="0.1" min="0" inputmode="decimal" placeholder="ex.: 49"></label><label>Cabecinha ao nascer (cm)<input id="baby-birth-head" name="baby-birth-head" type="number" step="0.1" min="0" inputmode="decimal" placeholder="ex.: 34,5"></label><label>Observações do nascimento<textarea id="baby-birth-notes" name="baby-birth-notes" rows="3" maxlength="600" placeholder="Hospital, como foi o parto, quem estava, primeiras impressões..."></textarea></label><button class="primary-button full" type="submit">Salvar perfil</button></form></dialog>
 
   <dialog id="quick-dialog" class="modal"><form id="quick-form" method="dialog"><div class="modal-head"><h2 id="quick-title">Registrar</h2><button class="close-button" type="button" data-close="quick-dialog" aria-label="Fechar">×</button></div><div id="quick-fields" class="stack"></div><p id="quick-error" class="form-error" role="alert"></p><button class="primary-button full" type="submit">Salvar</button></form></dialog>
 
