@@ -683,12 +683,15 @@ $('btn-export').addEventListener('click', async () => {
   } catch { /* usuário cancelou */ }
 });
 
-// ---------------- sons para dormir (WebAudio, loop sem emenda) ----------------
-let audioCtx = null; let soundSrc = null; let soundGain = null; let soundTimer = null;
-let soundOscs = []; let chirpTimer = null; let melodyTimer = null; let soundOn = false;
-function makeNoiseBuffer(type) {
-  const len = audioCtx.sampleRate * 4;
-  const buffer = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+// ---------------- sons para dormir ----------------
+// Estrategia robusta: o som e GERADO como arquivo (WAV) dentro do aparelho e tocado
+// pelo player de audio comum da pagina. Funciona em qualquer navegador que toque midia.
+const blobCache = {};
+let soundEl = null; let soundUrl = null; let soundTimer = null; let soundOn = false;
+function setSoundStatus(msg) { $('sound-status').textContent = msg; }
+function makeNoiseData(ctx, type) {
+  const len = Math.floor(ctx.sampleRate * 4);
+  const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
   const data = buffer.getChannelData(0);
   let last = 0; let b0 = 0; let b1 = 0; let b2 = 0;
   for (let i = 0; i < len; i++) {
@@ -697,12 +700,10 @@ function makeNoiseBuffer(type) {
     else if (type === 'pink') { b0 = 0.997 * b0 + 0.029 * white; b1 = 0.985 * b1 + 0.032 * white; b2 = 0.95 * b2 + 0.048 * white; data[i] = (b0 + b1 + b2 + white * 0.05) * 1.5; }
     else data[i] = white * 0.6;
   }
-  // normaliza o pico para o som sair cheio em qualquer alto-falante (o grave some nos fraquinhos)
   let peak = 0;
   for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(data[i]));
   if (peak > 0) { const scale = 0.95 / peak; for (let i = 0; i < len; i++) data[i] *= scale; }
-  // costura do loop: desvanecer as pontas uma na outra para nao clicar
-  const fade = Math.floor(audioCtx.sampleRate * 0.08);
+  const fade = Math.floor(ctx.sampleRate * 0.08);
   for (let i = 0; i < fade; i++) {
     const t = i / fade;
     const tail = data[len - fade + i];
@@ -710,128 +711,140 @@ function makeNoiseBuffer(type) {
   }
   return buffer;
 }
-function stopSound() {
-  soundOn = false;
-  if (soundSrc) { try { soundSrc.stop(); } catch { /* ja parado */ } soundSrc = null; }
-  for (const o of soundOscs) { try { o.stop(); } catch { /* idem */ } }
-  soundOscs = [];
-  clearTimeout(soundTimer); clearTimeout(chirpTimer); clearTimeout(melodyTimer);
-  $('btn-sound').textContent = '▶ Tocar som';
-}
-function noiseSource(bufferType) {
-  const src = audioCtx.createBufferSource();
-  src.buffer = makeNoiseBuffer(bufferType);
-  src.loop = true;
-  return src;
-}
-function addLfo(freq, depth, target) {
-  const lfo = audioCtx.createOscillator();
-  const d = audioCtx.createGain();
-  d.gain.value = depth;
-  lfo.frequency.value = freq;
-  lfo.connect(d).connect(target);
-  lfo.start();
-  soundOscs.push(lfo);
-  return lfo;
-}
 const NOTES = { G3: 196, C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392, A4: 440, B4: 493.88, C5: 523.25 };
 const SONGS = {
-  // Tema que Mozart usou nas suas 12 Variacoes (a nossa "Brilha, brilha, estrelinha")
   'music-twinkle': [['C4', 1], ['C4', 1], ['G4', 1], ['G4', 1], ['A4', 1], ['A4', 1], ['G4', 2], ['F4', 1], ['F4', 1], ['E4', 1], ['E4', 1], ['D4', 1], ['D4', 1], ['C4', 2], ['G4', 1], ['G4', 1], ['F4', 1], ['F4', 1], ['E4', 1], ['E4', 1], ['D4', 2], ['G4', 1], ['G4', 1], ['F4', 1], ['F4', 1], ['E4', 1], ['E4', 1], ['D4', 2], ['C4', 1], ['C4', 1], ['G4', 1], ['G4', 1], ['A4', 1], ['A4', 1], ['G4', 2], ['F4', 1], ['F4', 1], ['E4', 1], ['E4', 1], ['D4', 1], ['D4', 1], ['C4', 2]],
   'music-jacques': [['C4', 1], ['D4', 1], ['E4', 1], ['C4', 1], ['C4', 1], ['D4', 1], ['E4', 1], ['C4', 1], ['E4', 1], ['F4', 1], ['G4', 2], ['E4', 1], ['F4', 1], ['G4', 2], ['G4', .5], ['A4', .5], ['G4', .5], ['F4', .5], ['E4', 1], ['C4', 1], ['G4', .5], ['A4', .5], ['G4', .5], ['F4', .5], ['E4', 1], ['C4', 1], ['C4', 1], ['G3', 1], ['C4', 2], ['C4', 1], ['G3', 1], ['C4', 2]],
 };
-function pling(freq, durSec) {
-  const t = audioCtx.currentTime;
-  const g = audioCtx.createGain();
+function bufferToWavBlob(buffer) {
+  const data = buffer.getChannelData(0);
+  const len = data.length;
+  const out = new DataView(new ArrayBuffer(44 + len * 2));
+  const wstr = (off, str) => { for (let i = 0; i < str.length; i++) out.setUint8(off + i, str.charCodeAt(i)); };
+  wstr(0, 'RIFF'); out.setUint32(4, 36 + len * 2, true); wstr(8, 'WAVEfmt ');
+  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+  out.setUint32(24, buffer.sampleRate, true); out.setUint32(28, buffer.sampleRate * 2, true);
+  out.setUint16(32, 2, true); out.setUint16(34, 16, true); wstr(36, 'data'); out.setUint32(40, len * 2, true);
+  for (let i = 0; i < len; i++) {
+    const v = Math.max(-1, Math.min(1, data[i]));
+    out.setInt16(44 + i * 2, v * 0x7fff, true);
+  }
+  return new Blob([out.buffer], { type: 'audio/wav' });
+}
+function offlineLfo(off, freq, depth, target) {
+  const lfo = off.createOscillator();
+  const d = off.createGain();
+  d.gain.value = depth;
+  lfo.frequency.value = freq;
+  lfo.connect(d).connect(target);
+  lfo.start(0);
+}
+function offlinePling(off, dest, freq, t, durSec) {
+  const g = off.createGain();
   g.gain.setValueAtTime(0, t);
   g.gain.linearRampToValueAtTime(0.5, t + 0.012);
   g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(0.7, durSec * 2.1));
-  const o1 = audioCtx.createOscillator(); o1.type = 'sine'; o1.frequency.value = freq;
-  const o2 = audioCtx.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq * 4;
-  const g2 = audioCtx.createGain(); g2.gain.value = 0.16;
-  o1.connect(g); o2.connect(g2).connect(g); g.connect(soundGain);
-  o1.start(t); o2.start(t);
+  const o1 = off.createOscillator(); o1.type = 'sine'; o1.frequency.value = freq;
+  const o2 = off.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq * 4;
+  const g2 = off.createGain(); g2.gain.value = 0.16;
+  o1.connect(g); o2.connect(g2).connect(g); g.connect(dest);
   const stopAt = t + Math.max(0.8, durSec * 2.2);
-  o1.stop(stopAt); o2.stop(stopAt);
+  o1.start(t); o2.start(t); o1.stop(stopAt); o2.stop(stopAt);
 }
-function startSound() {
-  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted') audioCtx.resume();
-  const type = $('sound-type').value;
-  const vol = Number($('sound-volume').value) / 100;
-  soundGain = audioCtx.createGain();
-  soundGain.gain.value = vol;
-  soundGain.connect(audioCtx.destination);
-  soundOn = true;
-  if (type === 'brown' || type === 'pink' || type === 'white') {
-    soundSrc = noiseSource(type);
+async function renderSoundBlob(type) {
+  if (blobCache[type]) return blobCache[type];
+  const sr = 44100;
+  const isMusic = !!SONGS[type];
+  const dur = isMusic ? SONGS[type].reduce((a, [, b]) => a + b * 0.46, 0) + 1.6 : 12;
+  const off = new OfflineAudioContext(1, Math.ceil(sr * dur), sr);
+  const master = off.createGain(); master.gain.value = 0.95; master.connect(off.destination);
+  if (!isMusic) {
+    const base = (type === 'sea' || type === 'forest') ? 'pink' : type;
+    const src = off.createBufferSource();
+    src.buffer = makeNoiseData(off, base);
+    src.loop = true;
     if (type === 'brown') {
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'lowpass'; filter.frequency.value = 480;
-      soundSrc.connect(filter).connect(soundGain);
-      addLfo(0.13, vol * 0.22, soundGain.gain);
+      const filter = off.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 480;
+      const whoosh = off.createGain(); whoosh.gain.value = 0.82;
+      src.connect(filter).connect(whoosh).connect(master);
+      offlineLfo(off, 1 / 12, 0.16, whoosh.gain);
+    } else if (type === 'sea') {
+      const filter = off.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 620;
+      const waves = off.createGain(); waves.gain.value = 0.72;
+      src.connect(filter).connect(waves).connect(master);
+      offlineLfo(off, 1 / 12, 330, filter.frequency);
+      offlineLfo(off, 1 / 12, 0.26, waves.gain);
+    } else if (type === 'forest') {
+      const breeze = off.createGain(); breeze.gain.value = 0.32;
+      src.connect(breeze).connect(master);
+      for (const t0 of [0.8, 2.4, 4.2, 5.8, 7.6, 9.5, 11.0]) {
+        const o = off.createOscillator(); o.type = 'sine';
+        const g = off.createGain();
+        const f0 = 2100 + ((t0 * 733) % 900);
+        o.frequency.setValueAtTime(f0, t0);
+        o.frequency.exponentialRampToValueAtTime(f0 * 1.35, t0 + 0.07);
+        o.frequency.exponentialRampToValueAtTime(f0 * 0.92, t0 + 0.16);
+        g.gain.setValueAtTime(0, t0);
+        g.gain.linearRampToValueAtTime(0.085, t0 + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+        o.connect(g).connect(master);
+        o.start(t0); o.stop(t0 + 0.25);
+      }
     } else {
-      soundSrc.connect(soundGain);
+      src.connect(master);
     }
-    soundSrc.start();
-  } else if (type === 'sea') {
-    // mar: chiado suave com filtro e volume balancando devagar, como ondas
-    soundSrc = noiseSource('pink');
-    const filter = audioCtx.createBiquadFilter();
-    filter.type = 'lowpass'; filter.frequency.value = 620;
-    const waves = audioCtx.createGain(); waves.gain.value = 0.72;
-    soundSrc.connect(filter).connect(waves).connect(soundGain);
-    addLfo(0.075, 330, filter.frequency);
-    addLfo(0.075, 0.26, waves.gain);
-    soundSrc.start();
-  } else if (type === 'forest') {
-    // mata: brisa bem baixinha + passarinhos sintetizados de vez em quando
-    soundSrc = noiseSource('pink');
-    const breeze = audioCtx.createGain(); breeze.gain.value = 0.32;
-    soundSrc.connect(breeze).connect(soundGain);
-    soundSrc.start();
-    const chirp = () => {
-      if (!soundOn) return;
-      const t = audioCtx.currentTime;
-      const o = audioCtx.createOscillator(); o.type = 'sine';
-      const g = audioCtx.createGain();
-      const f0 = 2100 + Math.random() * 900;
-      o.frequency.setValueAtTime(f0, t);
-      o.frequency.exponentialRampToValueAtTime(f0 * 1.35, t + 0.07);
-      o.frequency.exponentialRampToValueAtTime(f0 * 0.92, t + 0.16);
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.09, t + 0.03);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-      o.connect(g).connect(soundGain);
-      o.start(t); o.stop(t + 0.25);
-      chirpTimer = setTimeout(chirp, 1100 + Math.random() * 2800);
-    };
-    chirpTimer = setTimeout(chirp, 700);
-  } else if (SONGS[type]) {
-    const song = SONGS[type];
-    let stepIdx = 0;
-    const step = () => {
-      if (!soundOn) return;
-      const [note, beats] = song[stepIdx];
-      pling(NOTES[note], beats * 0.46);
-      const last = stepIdx === song.length - 1;
-      stepIdx = (stepIdx + 1) % song.length;
-      melodyTimer = setTimeout(step, beats * 460 + (last ? 1400 : 0));
-    };
-    step();
+    src.start(0);
+  } else {
+    let t = 0.1;
+    for (const [note, beats] of SONGS[type]) {
+      offlinePling(off, master, NOTES[note], t, beats * 0.46);
+      t += beats * 0.46;
+    }
   }
+  const rendered = await off.startRendering();
+  const blob = bufferToWavBlob(rendered);
+  blobCache[type] = blob;
+  return blob;
+}
+async function startSound() {
+  const type = $('sound-type').value;
+  const label = $('sound-type').selectedOptions[0]?.textContent || 'som';
+  setSoundStatus('Preparando o som…');
+  const blob = await renderSoundBlob(type);
+  if (soundUrl) URL.revokeObjectURL(soundUrl);
+  soundUrl = URL.createObjectURL(blob);
+  if (!soundEl) { soundEl = new Audio(); soundEl.loop = true; soundEl.preload = 'auto'; }
+  soundEl.src = soundUrl;
+  soundEl.volume = Number($('sound-volume').value) / 100;
+  await soundEl.play();
+  soundOn = true;
   $('btn-sound').textContent = '■ Parar som';
+  setSoundStatus(`Tocando agora: ${label}`);
   const mins = Number($('sound-timer').value);
+  clearTimeout(soundTimer);
   if (mins > 0) soundTimer = setTimeout(stopSound, mins * 60000);
 }
-$('btn-sound').addEventListener('click', () => {
-  try {
-    if (soundOn) { stopSound(); return; }
-    startSound();
-  } catch { toast('Não consegui tocar o som neste navegador. Tente de novo ou use outro navegador.'); }
+function stopSound() {
+  soundOn = false;
+  if (soundEl) soundEl.pause();
+  clearTimeout(soundTimer);
+  $('btn-sound').textContent = '▶ Tocar som';
+  setSoundStatus('Som parado.');
+}
+$('btn-sound').addEventListener('click', async () => {
+  if (soundOn) { stopSound(); return; }
+  try { await startSound(); }
+  catch (e) {
+    setSoundStatus(`Não tocou: ${e?.message || 'o navegador bloqueou o áudio'}. Toque de novo ou aumente o volume do aparelho.`);
+    toast('Não consegui tocar o som. Veja o aviso no cartão de sons.');
+  }
 });
-$('sound-type').addEventListener('change', () => { if (soundOn) { stopSound(); try { startSound(); } catch { toast('Não consegui trocar o som.'); } } });
-$('sound-volume').addEventListener('input', () => { if (soundGain) soundGain.gain.value = Number($('sound-volume').value) / 100; });
+$('sound-type').addEventListener('change', async () => {
+  if (!soundOn) return;
+  try { await startSound(); }
+  catch { setSoundStatus('Não consegui trocar o som. Toque em parar e tocar de novo.'); }
+});
+$('sound-volume').addEventListener('input', () => { if (soundEl) soundEl.volume = Number($('sound-volume').value) / 100; });
 
 // ---------------- contracoes (neste aparelho) ----------------
 let contractionActive = null;
