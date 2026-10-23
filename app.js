@@ -210,6 +210,21 @@ async function ensureAnonSession() {
   }
   return true;
 }
+// O token fica salvo em DOIS lugares (localStorage + cookie de 1 ano):
+// se o navegador limpar um, o outro devolve a entrada sem digitar de novo.
+function saveToken(t) {
+  try { localStorage.setItem('ninho-token', t); } catch { /* ignora */ }
+  try { document.cookie = `ninho-token=${encodeURIComponent(t)}; max-age=${60 * 60 * 24 * 365}; path=/ninho/; SameSite=Lax`; } catch { /* ignora */ }
+}
+function readToken() {
+  try { const v = localStorage.getItem('ninho-token'); if (v) return v; } catch { /* ignora */ }
+  const m = document.cookie.match(/(?:^|; )ninho-token=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+function clearToken() {
+  try { localStorage.removeItem('ninho-token'); localStorage.removeItem('ninho-pending-token'); } catch { /* ignora */ }
+  try { document.cookie = 'ninho-token=; max-age=0; path=/ninho/; SameSite=Lax'; } catch { /* ignora */ }
+}
 // Entrada com o token da familia. Retorna: 'app' | 'setup' (token livre, 1o uso) | 'erro'
 async function enterWithToken(token) {
   if (!sb) { $('auth-error').textContent = 'A nuvem não está configurada neste aparelho.'; return 'erro'; }
@@ -230,7 +245,7 @@ async function enterWithToken(token) {
     return 'setup';
   }
   state.family = data;
-  localStorage.setItem('ninho-token', token);
+  saveToken(token);
   localStorage.removeItem('ninho-pending-token');
   const ok = await loadFamilyContext();
   if (ok) { await enterApp(); return 'app'; }
@@ -248,8 +263,7 @@ $('btn-logout').addEventListener('click', logout);
 async function logout() {
   if (state.realtime) { sb.removeChannel(state.realtime); state.realtime = null; }
   if (state.mode === 'cloud' && sb) await sb.auth.signOut();
-  localStorage.removeItem('ninho-token');
-  localStorage.removeItem('ninho-pending-token');
+  clearToken();
   state.user = null; state.family = null; state.baby = null; state.events = [];
   show('auth-view');
 }
@@ -292,7 +306,7 @@ $('family-form').addEventListener('submit', async (ev) => {
     const pending = localStorage.getItem('ninho-pending-token');
     if (pending) {
       const { error: e3 } = await sb.rpc('claim_token_family', { p_token: pending, p_family_id: familyId });
-      if (!e3) localStorage.setItem('ninho-token', pending);
+      if (!e3) saveToken(pending);
       localStorage.removeItem('ninho-pending-token');
     }
     await enterApp();
@@ -337,6 +351,40 @@ function subscribeRealtime() {
 }
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+// ---------------- dica do dia (conteudo original, por fase) ----------------
+const TIPS = {
+  pre: [
+    ['A mala da maternidade', 'Deixe pronta perto da porta: documentos, roupas para você e a primeira roupinha dele. Na hora H, ninguém pensa direito — a mala pensa por vocês.'],
+    ['Combinem os turnos antes', 'Conversar agora sobre quem levanta em cada mamada da madrugada evita desgaste quando o sono apertar.'],
+    ['O berço seguro', 'Colchão firme e nada dentro do berço: sem travesseiro, cobertas soltas ou bichinhos. Bebê dorme de barriga para cima.'],
+    ['Comida fácil congelada', 'Algumas refeições prontas no freezer valem ouro nos primeiros dias em casa.'],
+    ['Rede de apoio sem cerimônia', 'Escolham 2 ou 3 pessoas para chamar a qualquer hora nas primeiras semanas — e avisem elas desde já.'],
+    ['Conheçam o caminho', 'Testem o trajeto até a maternidade e quanto tempo leva, inclusive pensando no trânsito de madrugada.'],
+  ],
+  rn: [
+    ['Sono seguro, sempre', 'Para dormir: de barriga para cima, em superfície firme (berço ou moisés), sem objetos soltos por perto.'],
+    ['Fome aparece antes do choro', 'Mãozinha na boca, cabeça virando à procura e inquietação são sinais precoces. Choro é o sinal tardio.'],
+    ['Barriguinha todo dia', 'Um pouquinho de tummy time com ele acordado e você junto fortalece pescoço e costas. Use o botão Barriguinha do app.'],
+    ['Cólica tem hora marcada', 'Costuma piorar no fim da tarde. Colo, embalo, som de útero e paciência ajudam — e essa fase passa.'],
+    ['14 a 19 horas de sono', 'Recém-nascido dorme muito, mas em pedacinhos curtos. Dormir no colo no começo é normal e esperado.'],
+    ['Temperatura: fiquem de olho', 'Nos primeiros 3 meses, temperatura de 37,8 °C ou mais merece uma ligação para o pediatra no mesmo dia.'],
+    ['Vitamina D', 'Costuma ser diária no primeiro ano. Confirme dose e horário com o pediatra — e registre no botão Remédio para não esquecer.'],
+  ],
+  geral: [
+    ['Ordem vale mais que horário', 'Uma sequência previsível (banho → mamada → sono) acalma mais do que perseguir o relógio.'],
+    ['Luz de dia, escuro de noite', 'Claridade de manhã e casa escurecida à noite ajudam o relógio do corpo dele a se formar.'],
+    ['Registrem sem perfeição', 'O diário serve para enxergar padrões e ajudar vocês dois — nunca para cobrar perfeição de pai e mãe de primeira viagem.'],
+  ],
+};
+function renderTip(birth) {
+  const age = ageDaysOf(birth);
+  const pool = !birth ? TIPS.geral : age < 0 ? TIPS.pre : age <= 90 ? [...TIPS.rn, ...TIPS.geral] : TIPS.geral;
+  const idx = Math.floor(Date.now() / 86400000) % pool.length;
+  const [title, text] = pool[idx];
+  $('tip-title').textContent = title;
+  $('tip-text').textContent = text;
 }
 
 // ---------------- renderizacao ----------------
@@ -407,6 +455,7 @@ function render() {
   renderTimeline();
   renderButtons();
   renderSettings();
+  renderTip(birth);
 }
 function renderNextNap(birth) {
   const box = $('next-content');
@@ -487,7 +536,7 @@ function renderSettings() {
     $('family-info').textContent = 'Modo neste aparelho (sem sincronização).';
     $('invite-code').textContent = '—';
   }
-  $('token-info').textContent = localStorage.getItem('ninho-token')
+  $('token-info').textContent = readToken()
     ? '🔑 Este aparelho entra automaticamente com o token da família.'
     : '';
 }
@@ -635,7 +684,8 @@ $('btn-export').addEventListener('click', async () => {
 });
 
 // ---------------- sons para dormir (WebAudio, loop sem emenda) ----------------
-let audioCtx = null; let soundSrc = null; let soundGain = null; let soundLfo = null; let soundTimer = null;
+let audioCtx = null; let soundSrc = null; let soundGain = null; let soundTimer = null;
+let soundOscs = []; let chirpTimer = null; let melodyTimer = null; let soundOn = false;
 function makeNoiseBuffer(type) {
   const len = audioCtx.sampleRate * 4;
   const buffer = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
@@ -661,46 +711,126 @@ function makeNoiseBuffer(type) {
   return buffer;
 }
 function stopSound() {
+  soundOn = false;
   if (soundSrc) { try { soundSrc.stop(); } catch { /* ja parado */ } soundSrc = null; }
-  if (soundLfo) { try { soundLfo.stop(); } catch { /* idem */ } soundLfo = null; }
-  clearTimeout(soundTimer);
+  for (const o of soundOscs) { try { o.stop(); } catch { /* idem */ } }
+  soundOscs = [];
+  clearTimeout(soundTimer); clearTimeout(chirpTimer); clearTimeout(melodyTimer);
   $('btn-sound').textContent = '▶ Tocar som';
+}
+function noiseSource(bufferType) {
+  const src = audioCtx.createBufferSource();
+  src.buffer = makeNoiseBuffer(bufferType);
+  src.loop = true;
+  return src;
+}
+function addLfo(freq, depth, target) {
+  const lfo = audioCtx.createOscillator();
+  const d = audioCtx.createGain();
+  d.gain.value = depth;
+  lfo.frequency.value = freq;
+  lfo.connect(d).connect(target);
+  lfo.start();
+  soundOscs.push(lfo);
+  return lfo;
+}
+const NOTES = { G3: 196, C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392, A4: 440, B4: 493.88, C5: 523.25 };
+const SONGS = {
+  // Tema que Mozart usou nas suas 12 Variacoes (a nossa "Brilha, brilha, estrelinha")
+  'music-twinkle': [['C4', 1], ['C4', 1], ['G4', 1], ['G4', 1], ['A4', 1], ['A4', 1], ['G4', 2], ['F4', 1], ['F4', 1], ['E4', 1], ['E4', 1], ['D4', 1], ['D4', 1], ['C4', 2], ['G4', 1], ['G4', 1], ['F4', 1], ['F4', 1], ['E4', 1], ['E4', 1], ['D4', 2], ['G4', 1], ['G4', 1], ['F4', 1], ['F4', 1], ['E4', 1], ['E4', 1], ['D4', 2], ['C4', 1], ['C4', 1], ['G4', 1], ['G4', 1], ['A4', 1], ['A4', 1], ['G4', 2], ['F4', 1], ['F4', 1], ['E4', 1], ['E4', 1], ['D4', 1], ['D4', 1], ['C4', 2]],
+  'music-jacques': [['C4', 1], ['D4', 1], ['E4', 1], ['C4', 1], ['C4', 1], ['D4', 1], ['E4', 1], ['C4', 1], ['E4', 1], ['F4', 1], ['G4', 2], ['E4', 1], ['F4', 1], ['G4', 2], ['G4', .5], ['A4', .5], ['G4', .5], ['F4', .5], ['E4', 1], ['C4', 1], ['G4', .5], ['A4', .5], ['G4', .5], ['F4', .5], ['E4', 1], ['C4', 1], ['C4', 1], ['G3', 1], ['C4', 2], ['C4', 1], ['G3', 1], ['C4', 2]],
+};
+function pling(freq, durSec) {
+  const t = audioCtx.currentTime;
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.5, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(0.7, durSec * 2.1));
+  const o1 = audioCtx.createOscillator(); o1.type = 'sine'; o1.frequency.value = freq;
+  const o2 = audioCtx.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq * 4;
+  const g2 = audioCtx.createGain(); g2.gain.value = 0.16;
+  o1.connect(g); o2.connect(g2).connect(g); g.connect(soundGain);
+  o1.start(t); o2.start(t);
+  const stopAt = t + Math.max(0.8, durSec * 2.2);
+  o1.stop(stopAt); o2.stop(stopAt);
 }
 function startSound() {
   audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted') audioCtx.resume();
   const type = $('sound-type').value;
+  const vol = Number($('sound-volume').value) / 100;
   soundGain = audioCtx.createGain();
-  soundGain.gain.value = Number($('sound-volume').value) / 100;
-  soundSrc = audioCtx.createBufferSource();
-  soundSrc.buffer = makeNoiseBuffer(type);
-  soundSrc.loop = true;
-  if (type === 'brown') {
-    // "utero": grave filtrado + ondulacao lenta, como o som de dentro da barriga
+  soundGain.gain.value = vol;
+  soundGain.connect(audioCtx.destination);
+  soundOn = true;
+  if (type === 'brown' || type === 'pink' || type === 'white') {
+    soundSrc = noiseSource(type);
+    if (type === 'brown') {
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass'; filter.frequency.value = 480;
+      soundSrc.connect(filter).connect(soundGain);
+      addLfo(0.13, vol * 0.22, soundGain.gain);
+    } else {
+      soundSrc.connect(soundGain);
+    }
+    soundSrc.start();
+  } else if (type === 'sea') {
+    // mar: chiado suave com filtro e volume balancando devagar, como ondas
+    soundSrc = noiseSource('pink');
     const filter = audioCtx.createBiquadFilter();
-    filter.type = 'lowpass'; filter.frequency.value = 480;
-    soundSrc.connect(filter).connect(soundGain).connect(audioCtx.destination);
-    soundLfo = audioCtx.createOscillator();
-    const lfoDepth = audioCtx.createGain();
-    lfoDepth.gain.value = soundGain.gain.value * 0.22;
-    soundLfo.frequency.value = 0.13;
-    soundLfo.connect(lfoDepth).connect(soundGain.gain);
-    soundLfo.start();
-  } else {
-    soundSrc.connect(soundGain).connect(audioCtx.destination);
+    filter.type = 'lowpass'; filter.frequency.value = 620;
+    const waves = audioCtx.createGain(); waves.gain.value = 0.72;
+    soundSrc.connect(filter).connect(waves).connect(soundGain);
+    addLfo(0.075, 330, filter.frequency);
+    addLfo(0.075, 0.26, waves.gain);
+    soundSrc.start();
+  } else if (type === 'forest') {
+    // mata: brisa bem baixinha + passarinhos sintetizados de vez em quando
+    soundSrc = noiseSource('pink');
+    const breeze = audioCtx.createGain(); breeze.gain.value = 0.32;
+    soundSrc.connect(breeze).connect(soundGain);
+    soundSrc.start();
+    const chirp = () => {
+      if (!soundOn) return;
+      const t = audioCtx.currentTime;
+      const o = audioCtx.createOscillator(); o.type = 'sine';
+      const g = audioCtx.createGain();
+      const f0 = 2100 + Math.random() * 900;
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(f0 * 1.35, t + 0.07);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.92, t + 0.16);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.09, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o.connect(g).connect(soundGain);
+      o.start(t); o.stop(t + 0.25);
+      chirpTimer = setTimeout(chirp, 1100 + Math.random() * 2800);
+    };
+    chirpTimer = setTimeout(chirp, 700);
+  } else if (SONGS[type]) {
+    const song = SONGS[type];
+    let stepIdx = 0;
+    const step = () => {
+      if (!soundOn) return;
+      const [note, beats] = song[stepIdx];
+      pling(NOTES[note], beats * 0.46);
+      const last = stepIdx === song.length - 1;
+      stepIdx = (stepIdx + 1) % song.length;
+      melodyTimer = setTimeout(step, beats * 460 + (last ? 1400 : 0));
+    };
+    step();
   }
-  soundSrc.start();
   $('btn-sound').textContent = '■ Parar som';
   const mins = Number($('sound-timer').value);
   if (mins > 0) soundTimer = setTimeout(stopSound, mins * 60000);
 }
 $('btn-sound').addEventListener('click', () => {
   try {
-    if (soundSrc) { stopSound(); return; }
+    if (soundOn) { stopSound(); return; }
     startSound();
   } catch { toast('Não consegui tocar o som neste navegador. Tente de novo ou use outro navegador.'); }
 });
-$('sound-type').addEventListener('change', () => { if (soundSrc) { stopSound(); try { startSound(); } catch { toast('Não consegui trocar o som.'); } } });
+$('sound-type').addEventListener('change', () => { if (soundOn) { stopSound(); try { startSound(); } catch { toast('Não consegui trocar o som.'); } } });
 $('sound-volume').addEventListener('input', () => { if (soundGain) soundGain.gain.value = Number($('sound-volume').value) / 100; });
 
 // ---------------- contracoes (neste aparelho) ----------------
@@ -772,7 +902,7 @@ renderContractions();
       const { data: { session } } = await sb.auth.getSession();
       if (session) { await afterAuth(); return; }
       const urlToken = params.get('token');
-      const savedToken = urlToken || localStorage.getItem('ninho-token');
+      const savedToken = urlToken || readToken();
       if (savedToken) {
         const r = await enterWithToken(savedToken);
         if (r !== 'erro') return;

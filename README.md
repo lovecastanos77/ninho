@@ -8,7 +8,9 @@ Diário do bebê em português, original e feito para a nossa família: sono, ma
 - **Registros de 1 toque ou com cronômetro:** sono, peito esquerdo/direito (com sugestão do próximo peito), mamadeira (ml), ordenha (ml), fralda (xixi/cocô/os dois), barriguinha (tummy time), banho, peso + comprimento + perímetro cefálico, temperatura, remédio/vitamina e registro manual.
 - **Próxima soneca:** janela de vigília por idade (tabela de referência: 0–4 sem 35–60 min; 4–12 sem 60–90; 3–4 m 75–120; 5–7 m 2–3h; 7–10 m 2,5–3,5h; 11–14 m 3–4h; 14–24 m 4–6h), com encurtamento automático após soneca curta (<40 min).
 - **Alerta de mamada:** para recém-nascido, avisa quando passam ~3h da última mamada.
-- **Sons para dormir:** ruído marrom (“útero”), rosa (“chuva”) e branco gerados no aparelho (WebAudio), em loop sem emenda, com timer para desligar sozinho.
+- **Sons para dormir:** ruído marrom (“útero”), rosa (“chuva”) e branco, mar (ondas) e mata (brisa e pássaros) gerados no aparelho (WebAudio), em loop sem emenda, com timer — além de caixinha de música com o tema de Mozart (“Brilha, brilha”) e Frère Jacques.
+- **Dica do dia:** cartão com uma dica original por dia, conforme a fase (pré-nascimento, 0–3 meses, geral).
+- **Token lembrado:** o token de acesso fica salvo no aparelho (localStorage + cookie de reserva) e o link `?token=` entra direto.
 - **Modo madrugada:** tema escuro automático entre 19h e 7h (ou no botão ☾), pensado para registrar sem acordar ninguém.
 - **Cronômetro de contrações** (neste aparelho), para o grande dia: duração, intervalo e contagem da última hora.
 - **Resumo do dia e dos últimos 7 dias**, linha do tempo e **resumo compartilhável para o pediatra**.
