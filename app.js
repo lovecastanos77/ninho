@@ -1,166 +1,671 @@
-(() => {
-  'use strict';
+// Ninho — diario do bebe (sono, mamada, fralda, peso e rotina)
+// Funciona em dois modos: nuvem (Supabase, sincroniza o casal) e local (so neste aparelho).
+// A configuracao (URL + chave publica) vem de config.js, carregado no index.html.
 
-  const KEY = 'ninho-sleep-v1';
-  const $ = (id) => document.getElementById(id);
-  const initial = { baby: { name: '', birth: '' }, sessions: [], activeStart: null };
-  let state = load();
+let createClient = null;
+try {
+  ({ createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'));
+} catch { createClient = null; }
 
-  function load() {
-    try {
-      const value = JSON.parse(localStorage.getItem(KEY));
-      if (!value || typeof value !== 'object') return structuredClone(initial);
-      return {
-        baby: { name: String(value.baby?.name || '').slice(0, 40), birth: String(value.baby?.birth || '') },
-        sessions: Array.isArray(value.sessions) ? value.sessions.filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start).slice(-1000) : [],
-        activeStart: Number.isFinite(value.activeStart) ? value.activeStart : null
-      };
-    } catch { return structuredClone(initial); }
-  }
+const CFG = window.NINHO_CONFIG || {};
+const sb = (createClient && CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY)
+  ? createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY)
+  : null;
 
-  function save() { localStorage.setItem(KEY, JSON.stringify(state)); render(); }
-  function dayStart(date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime(); }
-  function dayMinutes(day, session) {
-    const start = dayStart(day);
-    return Math.max(0, Math.min(session.end, start + 86400000) - Math.max(session.start, start)) / 60000;
-  }
-  function formatDuration(minutes) {
-    const m = Math.max(0, Math.round(minutes));
-    return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}`;
-  }
-  function clock(time) { return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(time); }
-  function dateText(time) { return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' }).format(time); }
-  function minutesAwakeByAge() {
-    const birth = new Date(`${state.baby.birth}T12:00:00`);
-    if (!Number.isFinite(birth.getTime())) return 120;
-    const months = Math.max(0, (Date.now() - birth.getTime()) / (86400000 * 30.44));
-    if (months < 2) return 60;
-    if (months < 4) return 90;
-    if (months < 6) return 120;
-    if (months < 9) return 150;
-    if (months < 13) return 180;
-    if (months < 18) return 240;
-    return 300;
-  }
+const $ = (id) => document.getElementById(id);
+const now = () => Date.now();
+const iso = (ms) => new Date(ms).toISOString();
+const dayKey = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const fmtDur = (ms) => {
+  const min = Math.max(0, Math.round(ms / 60000));
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, '0')}`;
+};
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  function renderNext() {
-    const content = $('next-content');
-    content.replaceChildren();
-    const title = document.createElement('p'); title.className = 'next-time';
-    const description = document.createElement('p'); description.className = 'muted';
-    const progress = $('window-progress');
-    if (state.activeStart) {
-      title.textContent = 'Agora';
-      description.textContent = `Dormindo desde ${clock(state.activeStart)}`;
-      progress.style.width = '100%';
-      $('window-note').textContent = `Sono em andamento · ${formatDuration((Date.now() - state.activeStart) / 60000)}`;
-    } else {
-      const last = state.sessions.reduce((latest, s) => Math.max(latest, s.end), 0);
-      if (!last) {
-        title.textContent = '—';
-        description.textContent = 'Registre o primeiro descanso para ver uma estimativa.';
-        progress.style.width = '0%';
-        $('window-note').textContent = 'Uma estimativa gentil para organizar o dia.';
-      } else {
-        const windowMinutes = minutesAwakeByAge();
-        const target = last + windowMinutes * 60000;
-        title.textContent = clock(target);
-        description.textContent = target < Date.now() ? 'A janela estimada já chegou' : `Em cerca de ${formatDuration((target - Date.now()) / 60000)}`;
-        progress.style.width = `${Math.min(100, Math.max(0, (Date.now() - last) / (windowMinutes * 600)))}%`;
-        $('window-note').textContent = `Estimativa após ${formatDuration(windowMinutes)} acordado.`;
+// ---------------- janelas de vigilia (min) por idade ----------------
+// Referencia geral (mesma tabela publica usada por apps de sono): recem-nascido acorda pouco.
+function wakeWindow(ageDays) {
+  const w = ageDays / 7;
+  if (w < 4) return [35, 60];
+  if (w < 12) return [60, 90];
+  if (w < 17) return [75, 120];
+  if (w < 30) return [120, 180];
+  if (w < 43) return [150, 210];
+  if (w < 60) return [180, 240];
+  return [240, 360];
+}
+function ageDaysOf(birthStr) {
+  if (!birthStr) return 0;
+  const b = new Date(`${birthStr}T12:00:00`);
+  return Math.max(0, Math.floor((now() - b.getTime()) / 86400000));
+}
+function ageLabel(birthStr) {
+  const d = ageDaysOf(birthStr);
+  if (d < 1) return 'nasceu hoje ♡';
+  if (d < 30) return `${d} ${d === 1 ? 'dia' : 'dias'} de vida`;
+  if (d < 60) return `${Math.floor(d / 7)} semanas de vida`;
+  const m = Math.floor(d / 30.44);
+  return `${m} ${m === 1 ? 'mês' : 'meses'} de vida`;
+}
+
+// ---------------- estado ----------------
+const LOCAL_KEY = 'ninho-v2';
+const state = {
+  mode: 'local', // 'cloud' | 'local'
+  user: null,
+  family: null, // {id, name, invite_code}
+  baby: null,   // {id, name, birth_date}
+  events: [],   // forma unificada
+  realtime: null,
+};
+const local = loadLocal();
+function loadLocal() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LOCAL_KEY));
+    if (v && typeof v === 'object') return { profile: v.profile || { name: '', birth: '' }, events: Array.isArray(v.events) ? v.events : [], contractions: Array.isArray(v.contractions) ? v.contractions : [] };
+  } catch { /* ignora */ }
+  return { profile: { name: '', birth: '' }, events: [], contractions: [] };
+}
+function saveLocal() { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(local)); } catch { /* ignora */ } }
+
+// ---------------- camada de dados ----------------
+function fromRow(r) {
+  return {
+    id: r.id, type: r.type,
+    startsAt: new Date(r.starts_at).getTime(),
+    endsAt: r.ends_at ? new Date(r.ends_at).getTime() : null,
+    side: r.side || null, kind: r.kind || null,
+    amountMl: r.amount_ml ?? null, weightKg: r.weight_kg ?? null,
+    lengthCm: r.length_cm ?? null, headCm: r.head_cm ?? null, tempC: r.temp_c ?? null,
+    note: r.note || null,
+  };
+}
+function toRow(e) {
+  return {
+    baby_id: state.baby.id, type: e.type,
+    starts_at: iso(e.startsAt), ends_at: e.endsAt ? iso(e.endsAt) : null,
+    side: e.side || null, kind: e.kind || null,
+    amount_ml: e.amountMl ?? null, weight_kg: e.weightKg ?? null,
+    length_cm: e.lengthCm ?? null, head_cm: e.headCm ?? null, temp_c: e.tempC ?? null,
+    note: e.note || null, created_by: state.user?.id || null,
+  };
+}
+async function loadEvents() {
+  if (state.mode === 'cloud') {
+    const { data, error } = await sb.from('events').select('*').eq('baby_id', state.baby.id).order('starts_at', { ascending: false }).limit(500);
+    if (error) { toast('Erro ao carregar registros.'); return; }
+    state.events = data.map(fromRow);
+  } else {
+    state.events = [...local.events].sort((a, b) => b.startsAt - a.startsAt);
+  }
+  render();
+}
+async function addEvent(partial) {
+  const e = { id: crypto.randomUUID(), startsAt: now(), endsAt: null, ...partial };
+  if (state.mode === 'cloud') {
+    const { data, error } = await sb.from('events').insert(toRow(e)).select().single();
+    if (error) { toast(describeErr(error)); return null; }
+    const row = fromRow(data);
+    state.events.unshift(row);
+    render();
+    return row;
+  }
+  state.events.unshift(e);
+  local.events = state.events;
+  saveLocal(); render();
+  return e;
+}
+async function updateEvent(id, patch) {
+  const e = state.events.find((x) => x.id === id);
+  if (!e) return;
+  Object.assign(e, patch);
+  if (state.mode === 'cloud') {
+    const { error } = await sb.from('events').update(toRow(e)).eq('id', id);
+    if (error) toast(describeErr(error));
+  } else { local.events = state.events; saveLocal(); }
+  render();
+}
+async function deleteEvent(id) {
+  state.events = state.events.filter((x) => x.id !== id);
+  if (state.mode === 'cloud') {
+    const { error } = await sb.from('events').delete().eq('id', id);
+    if (error) toast(describeErr(error));
+  } else { local.events = state.events; saveLocal(); }
+  render();
+}
+function describeErr(error) {
+  const msg = String(error?.message || '');
+  if (msg.includes('events_type_check') || msg.includes('check constraint')) {
+    return 'Falta rodar o arquivo supabase/schema_v2.sql no Supabase para liberar este tipo de registro.';
+  }
+  if (msg.includes('length_cm') || msg.includes('temp_c')) return 'Falta rodar o supabase/schema_v2.sql no Supabase (colunas novas).';
+  return 'Não foi possível salvar. Verifique a conexão.';
+}
+
+// ---------------- tema (modo madrugada) ----------------
+function applyTheme() {
+  const saved = localStorage.getItem('ninho-theme');
+  const h = new Date().getHours();
+  const dark = saved ? saved === 'dark' : (h >= 19 || h < 7);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  $('theme-toggle').textContent = dark ? '☀' : '☾';
+}
+$('theme-toggle').addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('ninho-theme', next);
+  applyTheme();
+});
+
+// ---------------- navegacao entre telas ----------------
+function show(view) {
+  for (const v of ['auth-view', 'setup-view', 'app-view']) $(v).hidden = v !== view;
+  $('profile-button').style.visibility = view === 'app-view' ? 'visible' : 'hidden';
+}
+let toastTimer = null;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 4200);
+}
+
+// ---------------- autenticacao e montagem da familia ----------------
+let authMode = 'login';
+$('auth-toggle').addEventListener('click', () => {
+  authMode = authMode === 'login' ? 'signup' : 'login';
+  $('auth-submit').textContent = authMode === 'login' ? 'Entrar' : 'Criar conta';
+  $('auth-toggle').textContent = authMode === 'login' ? 'Ainda não tenho conta — criar agora' : 'Já tenho conta — entrar';
+  $('auth-error').textContent = '';
+});
+$('auth-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  if (!sb) { $('auth-error').textContent = 'A nuvem não está configurada neste aparelho.'; return; }
+  const email = $('auth-email').value.trim();
+  const password = $('auth-password').value;
+  $('auth-error').textContent = '';
+  try {
+    if (authMode === 'signup') {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if (error) throw error;
+      if (!data.session) {
+        $('auth-error').textContent = 'Conta criada! Confirme pelo link que chegou no seu e-mail e depois entre aqui.';
+        authMode = 'login'; $('auth-submit').textContent = 'Entrar';
+        return;
       }
+    } else {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
     }
-    content.append(title, description);
+    await afterAuth();
+  } catch (e) {
+    $('auth-error').textContent = traduzErroAuth(e);
   }
+});
+function traduzErroAuth(e) {
+  const m = String(e?.message || '');
+  if (m.includes('Invalid login')) return 'E-mail ou senha não conferem.';
+  if (m.includes('already registered')) return 'Este e-mail já tem conta. Tente entrar.';
+  if (m.includes('Email not confirmed')) return 'Confirme sua conta pelo link enviado ao seu e-mail.';
+  if (m.includes('Password should be')) return 'A senha precisa de pelo menos 6 caracteres.';
+  return 'Algo não deu certo. Tente de novo.';
+}
+$('auth-local').addEventListener('click', () => enterLocal());
+$('setup-logout').addEventListener('click', logout);
+$('btn-logout').addEventListener('click', logout);
+async function logout() {
+  if (state.realtime) { sb.removeChannel(state.realtime); state.realtime = null; }
+  if (state.mode === 'cloud' && sb) await sb.auth.signOut();
+  state.user = null; state.family = null; state.baby = null; state.events = [];
+  show('auth-view');
+}
 
-  function renderStats() {
-    const today = new Date();
-    const sessions = state.sessions.filter((s) => dayMinutes(today, s) > 0);
-    const active = state.activeStart ? [{ start: state.activeStart, end: Date.now() }] : [];
-    const total = [...sessions, ...active].reduce((n, s) => n + dayMinutes(today, s), 0);
-    $('total-sleep').textContent = formatDuration(total);
-    $('sleep-count').textContent = `${sessions.length + active.length} ${sessions.length + active.length === 1 ? 'descanso registrado' : 'descansos registrados'}`;
-    const bars = $('mini-bars'); bars.replaceChildren();
-    for (let offset = 6; offset >= 0; offset--) {
-      const date = new Date(); date.setDate(date.getDate() - offset);
-      const minutes = [...state.sessions, ...active].reduce((n, s) => n + dayMinutes(date, s), 0);
-      const bar = document.createElement('span');
-      bar.style.height = `${Math.max(4, Math.min(54, minutes / 14))}px`;
-      if (offset === 0) bar.className = 'today';
-      bar.title = `${dateText(date)}: ${formatDuration(minutes)}`;
-      bars.append(bar);
+async function afterAuth() {
+  const { data: { user } } = await sb.auth.getUser();
+  state.user = user;
+  state.mode = 'cloud';
+  const ok = await loadFamilyContext();
+  if (ok) { await enterApp(); } else { show('setup-view'); }
+}
+async function loadFamilyContext() {
+  const { data: members, error } = await sb.from('family_members').select('family_id').eq('user_id', state.user.id).limit(1);
+  if (error || !members?.length) return false;
+  const familyId = members[0].family_id;
+  const { data: fam } = await sb.from('families').select('*').eq('id', familyId).single();
+  const { data: babies } = await sb.from('babies').select('*').eq('family_id', familyId).order('created_at').limit(1);
+  if (!fam || !babies?.length) { state.family = fam || null; return false; }
+  state.family = fam;
+  state.baby = babies[0];
+  return true;
+}
+$('family-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  $('setup-error').textContent = '';
+  const name = $('setup-baby-name').value.trim();
+  const birth = $('setup-baby-birth').value;
+  if (!name || !birth) return;
+  try {
+    let familyId = state.family?.id;
+    if (!familyId) {
+      const { data: fam, error } = await sb.from('families').insert({ name: `Família ${name}`, created_by: state.user.id }).select().single();
+      if (error) throw error;
+      familyId = fam.id; state.family = fam;
     }
+    const { data: baby, error: e2 } = await sb.from('babies').insert({ family_id: familyId, name, birth_date: birth }).select().single();
+    if (e2) throw e2;
+    state.baby = baby;
+    await enterApp();
+  } catch { $('setup-error').textContent = 'Não consegui salvar. Tente de novo.'; }
+});
+$('join-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  $('setup-error').textContent = '';
+  const code = $('join-code').value.trim();
+  if (!code) return;
+  const { data, error } = await sb.rpc('join_family_by_code', { p_code: code });
+  if (error) {
+    $('setup-error').textContent = String(error.message).includes('join_family_by_code')
+      ? 'Falta rodar o supabase/schema_v2.sql no Supabase para o convite funcionar.'
+      : 'Código não encontrado. Confira e tente de novo.';
+    return;
   }
+  state.family = data;
+  const ok = await loadFamilyContext();
+  if (ok) { await enterApp(); } else { toast('Você entrou na família! Agora cadastre o bebê aqui em cima.'); }
+});
 
-  function renderTimeline() {
-    const timeline = $('timeline'); timeline.replaceChildren();
-    const today = new Date();
-    const entries = state.sessions.filter((s) => dayMinutes(today, s) > 0).sort((a, b) => b.start - a.start);
-    if (!entries.length) {
-      const empty = document.createElement('div'); empty.className = 'empty-state';
-      const symbol = document.createElement('span'); symbol.textContent = '☾';
-      empty.append(symbol, 'Nenhum soninho registrado hoje.'); timeline.append(empty);
-      return;
+function enterLocal() {
+  state.mode = 'local';
+  state.user = null;
+  state.baby = { id: 'local', name: local.profile.name || 'Meu bebê', birth_date: local.profile.birth || '' };
+  state.family = null;
+  state.events = [...local.events].sort((a, b) => b.startsAt - a.startsAt);
+  show('app-view');
+  render();
+}
+async function enterApp() {
+  show('app-view');
+  await loadEvents();
+  subscribeRealtime();
+}
+function subscribeRealtime() {
+  if (state.mode !== 'cloud' || !sb || state.realtime) return;
+  state.realtime = sb.channel('ninho-events')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'events', filter: `baby_id=eq.${state.baby.id}` }, () => { loadEvents(); })
+    .subscribe();
+}
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+// ---------------- renderizacao ----------------
+const ICONS = { sleep: '☾', feeding: '🍼', diaper: '✦', weight: '⚖', temperature: '🌡', tummy: '🐢', bath: '🛁', medicine: '💊', note: '✎' };
+function activeOf(type, kind) {
+  return state.events.find((e) => e.type === type && (kind === undefined || e.kind === kind) && !e.endsAt) || null;
+}
+function isFeed(e) { return e.type === 'feeding' && (e.kind === 'breast' || e.kind === 'bottle'); }
+function eventLabel(e) {
+  switch (e.type) {
+    case 'sleep': return 'Sono';
+    case 'feeding':
+      if (e.kind === 'breast') return `Peito ${e.side === 'right' ? 'direito' : 'esquerdo'}`;
+      if (e.kind === 'pump') return `Ordenha${e.amountMl ? ` · ${e.amountMl} ml` : ''}`;
+      return `Mamadeira${e.amountMl ? ` · ${e.amountMl} ml` : ''}`;
+    case 'diaper': return `Fralda · ${e.kind === 'wet' ? 'xixi' : e.kind === 'dirty' ? 'cocô' : 'os dois'}`;
+    case 'weight': {
+      const extras = [e.lengthCm ? `${e.lengthCm} cm` : '', e.headCm ? `PC ${e.headCm} cm` : ''].filter(Boolean).join(' · ');
+      return `Peso ${e.weightKg ? `${String(e.weightKg).replace('.', ',')} kg` : ''}${extras ? ` · ${extras}` : ''}`;
     }
-    entries.forEach((s) => {
-      const row = document.createElement('div'); row.className = 'entry';
-      const icon = document.createElement('span'); icon.className = 'entry-icon'; icon.textContent = '☾';
-      const main = document.createElement('div'); main.className = 'entry-main';
-      const title = document.createElement('strong'); title.textContent = 'Sono';
-      const details = document.createElement('small'); details.textContent = `${clock(s.start)} – ${clock(s.end)}`;
-      main.append(title, details);
-      const duration = document.createElement('span'); duration.className = 'entry-duration'; duration.textContent = formatDuration((s.end - s.start) / 60000);
-      const remove = document.createElement('button'); remove.className = 'delete-button'; remove.type = 'button'; remove.title = 'Excluir este sono'; remove.setAttribute('aria-label', `Excluir sono das ${clock(s.start)}`); remove.textContent = '×';
-      remove.addEventListener('click', () => { state.sessions = state.sessions.filter((entry) => entry.id !== s.id); save(); });
-      row.append(icon, main, duration, remove); timeline.append(row);
-    });
+    case 'temperature': return `Temperatura ${e.tempC ? `${String(e.tempC).replace('.', ',')} °C` : ''}`;
+    case 'tummy': return 'Barriguinha (tummy time)';
+    case 'bath': return 'Banho';
+    case 'medicine': return `Remédio${e.note ? ` · ${esc(e.note)}` : ''}`;
+    default: return e.note || 'Nota';
   }
+}
+function eventWhen(e) {
+  const end = e.endsAt ? ` – ${fmtTime(e.endsAt)}` : ' · em andamento';
+  const dur = e.endsAt ? ` · ${fmtDur(e.endsAt - e.startsAt)}` : ` · ${fmtDur(now() - e.startsAt)} até agora`;
+  return `${fmtTime(e.startsAt)}${end}${dur}`;
+}
+function render() {
+  if (!state.baby) return;
+  const baby = state.baby;
+  const birth = baby.birth_date || '';
+  const hours = new Date().getHours();
+  const greet = hours < 6 ? 'Boa madrugada' : hours < 12 ? 'Bom dia' : hours < 18 ? 'Boa tarde' : 'Boa noite';
+  $('greeting-title').innerHTML = `${greet}, <em>família.</em>`;
+  $('today-label').textContent = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
+  $('baby-age').textContent = birth ? `${baby.name} · ${ageLabel(birth)}` : `${baby.name}`;
+  $('profile-label').textContent = baby.name || 'Meu bebê';
+  $('sync-note').textContent = state.mode === 'cloud' ? 'Sincronizado ☁ ✦' : 'Neste aparelho ✦';
 
-  function render() {
-    const name = state.baby.name.trim();
-    $('profile-label').textContent = name || 'Meu bebê';
-    $('today-label').textContent = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date()).toUpperCase();
-    $('action-title').textContent = state.activeStart ? 'Soninho em andamento' : 'Hora de registrar um soninho?';
-    $('action-subtitle').textContent = state.activeStart ? `Começou às ${clock(state.activeStart)} · ${formatDuration((Date.now() - state.activeStart) / 60000)}` : 'Acompanhe cada descanso sem complicação.';
-    $('toggle-sleep').firstChild.textContent = state.activeStart ? 'Encerrar sono ' : 'Começar sono ';
-    renderNext(); renderStats(); renderTimeline();
+  const todayK = dayKey(now());
+  const todays = state.events.filter((e) => dayKey(e.startsAt) === todayK);
+  const sleepMs = todays.filter((e) => e.type === 'sleep').reduce((acc, e) => acc + ((e.endsAt || now()) - e.startsAt), 0);
+  $('total-sleep').textContent = fmtDur(sleepMs);
+  $('total-feeds').textContent = todays.filter(isFeed).length;
+  $('total-diapers').textContent = todays.filter((e) => e.type === 'diaper').length;
+
+  const feeds = state.events.filter(isFeed);
+  const lastFeed = feeds[0];
+  $('last-feed').textContent = lastFeed ? `Última mamada: ${fmtTime(lastFeed.startsAt)} · ${eventLabel(lastFeed)}` : 'Última mamada: —';
+  const lastBreast = state.events.find((e) => e.type === 'feeding' && e.kind === 'breast');
+  $('next-breast').textContent = lastBreast ? `Próximo peito sugerido: ${lastBreast.side === 'left' ? 'direito' : 'esquerdo'}` : '';
+
+  // alerta de mamada (recém-nascido: a cada ~3h)
+  const alert = $('feed-alert');
+  const age = ageDaysOf(birth);
+  if (lastFeed && age < 90 && now() - lastFeed.startsAt > 3 * 3600000 && !activeOf('feeding', 'breast')) {
+    alert.hidden = false;
+    alert.textContent = `⏰ Já faz ${fmtDur(now() - lastFeed.startsAt)} desde a última mamada. Para recém-nascido, o ritmo costuma ser a cada 2–3h — vale observar os sinais de fome.`;
+  } else { alert.hidden = true; }
+
+  renderNextNap(birth);
+  renderBars();
+  renderTimeline();
+  renderButtons();
+  renderSettings();
+}
+function renderNextNap(birth) {
+  const sleeping = activeOf('sleep');
+  const box = $('next-content');
+  if (sleeping) {
+    box.innerHTML = `<p class="next-time">Dormindo ☾</p><p class="muted">há ${fmtDur(now() - sleeping.startsAt)}</p>`;
+    $('window-progress').style.width = '100%';
+    $('window-note').textContent = 'Toque em “Sono” para encerrar quando acordar.';
+    return;
   }
+  const age = ageDaysOf(birth);
+  const [lo, hi] = wakeWindow(age);
+  const lastSleep = state.events.find((e) => e.type === 'sleep' && e.endsAt);
+  if (!lastSleep) {
+    box.innerHTML = `<p class="next-time">${lo}–${hi} min</p><p class="muted">acordado entre sonecas, para esta idade</p>`;
+    $('window-progress').style.width = '0%';
+    $('window-note').textContent = 'Registre o primeiro descanso para a estimativa ficar pessoal.';
+    return;
+  }
+  let adjLo = lo; let adjHi = hi;
+  const napDur = (lastSleep.endsAt - lastSleep.startsAt) / 60000;
+  if (napDur > 0 && napDur < 40) { adjLo = Math.max(20, lo - 15); adjHi = Math.max(adjLo + 10, hi - 15); }
+  const awake = now() - lastSleep.endsAt;
+  const from = new Date(lastSleep.endsAt + adjLo * 60000);
+  const to = new Date(lastSleep.endsAt + adjHi * 60000);
+  box.innerHTML = `<p class="next-time">${fmtTime(from.getTime())} – ${fmtTime(to.getTime())}</p><p class="muted">acordado há ${fmtDur(awake)} · janela de ${adjLo}–${adjHi} min${napDur < 40 ? ' (soneca curta: janela encurtada)' : ''}</p>`;
+  $('window-progress').style.width = `${Math.min(100, Math.max(0, (awake / (adjHi * 60000)) * 100))}%`;
+  $('window-note').textContent = awake > adjHi * 60000 ? 'A janela estimada já passou — observe os sinais de sono.' : 'Uma estimativa gentil para organizar o dia.';
+}
+function renderBars() {
+  const bars = $('mini-bars');
+  bars.innerHTML = '';
+  const totals = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - i);
+    const k = dayKey(d.getTime());
+    const ms = state.events.filter((e) => e.type === 'sleep' && dayKey(e.startsAt) === k).reduce((a, e) => a + ((e.endsAt || now()) - e.startsAt), 0);
+    totals.push(ms);
+  }
+  const max = Math.max(...totals, 3600000);
+  totals.forEach((ms, i) => {
+    const s = document.createElement('span');
+    s.style.height = `${Math.max(7, (ms / max) * 100)}%`;
+    if (i === 6) s.className = 'today';
+    s.title = fmtDur(ms);
+    bars.appendChild(s);
+  });
+}
+function renderTimeline() {
+  const box = $('timeline');
+  const list = state.events.slice(0, 30);
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-state"><span>✦</span>Nenhum registro ainda. Toque em um botão acima para começar.</div>';
+    return;
+  }
+  box.innerHTML = list.map((e) => `
+    <div class="entry">
+      <span class="entry-icon">${ICONS[e.type] || '✦'}</span>
+      <div class="entry-main"><strong>${eventLabel(e)}</strong><small>${new Date(e.startsAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} · ${eventWhen(e)}</small></div>
+      <button class="delete-button" data-del="${e.id}" aria-label="Excluir registro">×</button>
+    </div>`).join('');
+  box.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => deleteEvent(b.dataset.del)));
+}
+function renderSettings() {
+  const growth = state.events.find((e) => e.type === 'weight');
+  $('growth-info').textContent = growth ? `Última pesagem: ${eventLabel(growth)} · ${new Date(growth.startsAt).toLocaleDateString('pt-BR')}` : '';
+  if (state.mode === 'cloud' && state.family) {
+    $('family-info').textContent = `${state.family.name} · conta ${state.user?.email || ''}`;
+    $('invite-code').textContent = state.family.invite_code || '—';
+  } else {
+    $('family-info').textContent = 'Modo neste aparelho (sem sincronização).';
+    $('invite-code').textContent = '— (entre com uma conta para convidar)';
+  }
+}
+function markBtn(id, active, label) {
+  const b = $(id);
+  b.classList.toggle('is-active', !!active);
+  if (label) b.dataset.label = label;
+}
+function renderButtons() {
+  const sleep = activeOf('sleep');
+  $('btn-sleep').innerHTML = sleep ? `<span>■</span> Sono · ${fmtDur(now() - sleep.startsAt)}` : '<span>☾</span> Sono';
+  $('btn-sleep').classList.toggle('is-active', !!sleep);
+  for (const [id, side] of [['btn-breast-left', 'left'], ['btn-breast-right', 'right']]) {
+    const act = state.events.find((e) => e.type === 'feeding' && e.kind === 'breast' && e.side === side && !e.endsAt);
+    $(id).innerHTML = act ? `<span>■</span> ${side === 'left' ? 'Esq.' : 'Dir.'} · ${fmtDur(now() - act.startsAt)}` : `<span>${side === 'left' ? '◐' : '◑'}</span> Peito ${side === 'left' ? 'esquerdo' : 'direito'}`;
+    $(id).classList.toggle('is-active', !!act);
+  }
+  const tummy = activeOf('tummy');
+  $('btn-tummy').innerHTML = tummy ? `<span>■</span> Barriguinha · ${fmtDur(now() - tummy.startsAt)}` : '<span>🐢</span> Barriguinha';
+  $('btn-tummy').classList.toggle('is-active', !!tummy);
+  const actives = state.events.filter((e) => !e.endsAt);
+  $('active-timers-label').textContent = actives.length ? `${actives.length} cronômetro(s) rodando` : '';
+}
 
-  $('profile-button').addEventListener('click', () => {
-    $('baby-name').value = state.baby.name;
-    $('baby-birth').value = state.baby.birth;
-    $('baby-birth').max = new Date().toISOString().slice(0, 10);
-    $('profile-dialog').showModal();
-  });
-  $('profile-form').addEventListener('submit', (event) => {
-    event.preventDefault();
-    const name = $('baby-name').value.trim(); const birth = $('baby-birth').value;
-    if (!name || !birth || new Date(`${birth}T12:00:00`).getTime() > Date.now()) return;
-    state.baby = { name, birth }; save(); $('profile-dialog').close();
-  });
-  $('toggle-sleep').addEventListener('click', () => {
-    if (!state.activeStart) state.activeStart = Date.now();
-    else {
-      const end = Date.now();
-      if (end > state.activeStart) state.sessions.push({ id: crypto.randomUUID(), start: state.activeStart, end });
-      state.activeStart = null;
-    }
-    save();
-  });
-  $('add-manual').addEventListener('click', () => {
-    const now = new Date(); const before = new Date(now.getTime() - 30 * 60000);
-    const localValue = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    $('sleep-start').value = localValue(before); $('sleep-end').value = localValue(now);
-    $('form-error').textContent = ''; $('sleep-dialog').showModal();
-  });
-  $('sleep-form').addEventListener('submit', (event) => {
-    event.preventDefault();
-    const start = new Date($('sleep-start').value).getTime(); const end = new Date($('sleep-end').value).getTime();
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end > Date.now() + 60000) {
-      $('form-error').textContent = 'Confira os horários: o fim deve ser posterior ao início e não pode estar no futuro.'; return;
-    }
-    state.sessions.push({ id: crypto.randomUUID(), start, end }); save(); $('sleep-dialog').close();
-  });
-  document.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', () => $(button.dataset.close).close()));
-  render(); setInterval(render, 60000);
+// ---------------- acoes de registro ----------------
+async function toggleTimer(type, kind, side) {
+  const existing = state.events.find((e) => e.type === type && (kind === undefined || e.kind === kind) && (side === undefined || e.side === side) && !e.endsAt);
+  if (existing) { await updateEvent(existing.id, { endsAt: now() }); return; }
+  if (type === 'feeding' && kind === 'breast') {
+    const other = state.events.find((e) => e.type === 'feeding' && e.kind === 'breast' && !e.endsAt);
+    if (other) await updateEvent(other.id, { endsAt: now() });
+  }
+  if (type === 'sleep') {
+    const feed = state.events.find((e) => e.type === 'feeding' && e.kind === 'breast' && !e.endsAt);
+    if (feed) await updateEvent(feed.id, { endsAt: now() });
+  }
+  await addEvent({ type, kind: kind || null, side: side || null, endsAt: null });
+}
+$('btn-sleep').addEventListener('click', () => toggleTimer('sleep'));
+$('btn-breast-left').addEventListener('click', () => toggleTimer('feeding', 'breast', 'left'));
+$('btn-breast-right').addEventListener('click', () => toggleTimer('feeding', 'breast', 'right'));
+$('btn-tummy').addEventListener('click', () => toggleTimer('tummy'));
+for (const [id, kind] of [['btn-diaper-wet', 'wet'], ['btn-diaper-dirty', 'dirty'], ['btn-diaper-both', 'both']]) {
+  $(id).addEventListener('click', async () => { await addEvent({ type: 'diaper', kind, endsAt: now() }); toast('Fralda registrada ✓'); });
+}
+$('btn-bath').addEventListener('click', async () => { await addEvent({ type: 'bath', endsAt: now() }); toast('Banho registrado ✓'); });
+
+// formulario rapido (dialog)
+let quickSubmit = null;
+function openQuick(title, fieldsHtml, onSubmit) {
+  $('quick-title').textContent = title;
+  $('quick-fields').innerHTML = fieldsHtml;
+  $('quick-error').textContent = '';
+  quickSubmit = onSubmit;
+  $('quick-dialog').showModal();
+}
+$('quick-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  if (!quickSubmit) return;
+  const values = {};
+  $('quick-fields').querySelectorAll('input, select, textarea').forEach((el) => { values[el.name] = el.value; });
+  const ok = await quickSubmit(values);
+  if (ok !== false) $('quick-dialog').close();
+});
+document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => $(b.dataset.close).close()));
+const numField = (name, label, step, ph) => `<label>${label}<input name="${name}" type="number" step="${step}" inputmode="decimal" placeholder="${ph || ''}"></label>`;
+$('btn-bottle').addEventListener('click', () => openQuick('Mamadeira', numField('ml', 'Quantidade (ml)', '1', 'Ex.: 60'), async (v) => {
+  await addEvent({ type: 'feeding', kind: 'bottle', amountMl: v.ml ? Number(v.ml) : null, endsAt: now() });
+  toast('Mamadeira registrada ✓');
+}));
+$('btn-pump').addEventListener('click', () => openQuick('Ordenha', `${numField('ml', 'Quantidade ordenhada (ml)', '1', 'Ex.: 80')}<label>Lado<select name="side"><option value="">Os dois</option><option value="left">Esquerdo</option><option value="right">Direito</option></select></label>`, async (v) => {
+  await addEvent({ type: 'feeding', kind: 'pump', amountMl: v.ml ? Number(v.ml) : null, side: v.side || null, endsAt: now() });
+  toast('Ordenha registrada ✓');
+}));
+$('btn-weight').addEventListener('click', () => openQuick('Peso e medidas', `${numField('kg', 'Peso (kg)', '0.01', 'Ex.: 3,45')}${numField('len', 'Comprimento (cm)', '0.1', 'Ex.: 50,5')}${numField('head', 'Perímetro cefálico (cm)', '0.1', 'Ex.: 35,0')}`, async (v) => {
+  if (!v.kg && !v.len && !v.head) { $('quick-error').textContent = 'Preencha pelo menos uma medida.'; return false; }
+  await addEvent({ type: 'weight', weightKg: v.kg ? Number(v.kg) : null, lengthCm: v.len ? Number(v.len) : null, headCm: v.head ? Number(v.head) : null, endsAt: now() });
+  toast('Medidas registradas ✓');
+}));
+$('btn-temp').addEventListener('click', () => openQuick('Temperatura', `${numField('temp', 'Temperatura (°C)', '0.1', 'Ex.: 37,2')}<label>Observação (opcional)<input name="note" maxlength="80" placeholder="Ex.: depois do banho"></label>`, async (v) => {
+  if (!v.temp) { $('quick-error').textContent = 'Informe a temperatura.'; return false; }
+  await addEvent({ type: 'temperature', tempC: Number(v.temp), note: v.note || null, endsAt: now() });
+  toast('Temperatura registrada ✓');
+}));
+$('btn-medicine').addEventListener('click', () => openQuick('Remédio / vitamina', `<label>Nome e dose<input name="note" maxlength="80" required placeholder="Ex.: Vitamina D · 1 gota"></label>`, async (v) => {
+  await addEvent({ type: 'medicine', note: v.note || null, endsAt: now() });
+  toast('Remédio registrado ✓');
+}));
+$('btn-manual').addEventListener('click', () => openQuick('Registro manual',
+  `<label>Tipo<select name="type"><option value="sleep">Sono</option><option value="feeding">Mamada (mamadeira)</option><option value="diaper">Fralda</option><option value="bath">Banho</option><option value="note">Nota</option></select></label>
+   <label>Começou<input name="start" type="datetime-local" required></label>
+   <label>Terminou (só para sono/mamada)<input name="end" type="datetime-local"></label>
+   <label>Observação<input name="note" maxlength="120"></label>`, async (v) => {
+  const start = new Date(v.start).getTime();
+  if (!Number.isFinite(start)) { $('quick-error').textContent = 'Informe o horário.'; return false; }
+  const end = v.end ? new Date(v.end).getTime() : start;
+  const base = { type: v.type, startsAt: start, endsAt: end, note: v.note || null };
+  if (v.type === 'feeding') base.kind = 'bottle';
+  if (v.type === 'diaper') base.kind = 'wet';
+  await addEvent(base);
+  toast('Registro salvo ✓');
+}));
+
+// ---------------- perfil do bebe ----------------
+$('profile-button').addEventListener('click', () => {
+  if (!state.baby) return;
+  $('baby-name').value = state.baby.name || '';
+  $('baby-birth').value = state.baby.birth_date || '';
+  $('profile-dialog').showModal();
+});
+$('profile-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const name = $('baby-name').value.trim();
+  const birth = $('baby-birth').value;
+  if (!name || !birth) return;
+  if (state.mode === 'cloud') {
+    const { error } = await sb.from('babies').update({ name, birth_date: birth }).eq('id', state.baby.id);
+    if (error) { toast('Não consegui salvar o perfil.'); return; }
+  } else {
+    local.profile = { name, birth }; saveLocal();
+  }
+  state.baby.name = name; state.baby.birth_date = birth;
+  $('profile-dialog').close();
+  render();
+});
+
+// ---------------- compartilhar resumo (pediatra) ----------------
+$('btn-export').addEventListener('click', async () => {
+  if (!state.baby) return;
+  const lines = [`Resumo do Ninho — ${state.baby.name} (${ageLabel(state.baby.birth_date)})`, ''];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - i);
+    const k = dayKey(d.getTime());
+    const evs = state.events.filter((e) => dayKey(e.startsAt) === k);
+    const sleep = evs.filter((e) => e.type === 'sleep').reduce((a, e) => a + ((e.endsAt || now()) - e.startsAt), 0);
+    lines.push(`${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}: sono ${fmtDur(sleep)} · ${evs.filter(isFeed).length} mamadas · ${evs.filter((e) => e.type === 'diaper').length} fraldas`);
+  }
+  const w = state.events.find((e) => e.type === 'weight');
+  if (w) lines.push('', `Última pesagem: ${eventLabel(w)} (${new Date(w.startsAt).toLocaleDateString('pt-BR')})`);
+  const text = lines.join('\n');
+  try {
+    if (navigator.share) { await navigator.share({ title: 'Resumo do bebê', text }); }
+    else { await navigator.clipboard.writeText(text); toast('Resumo copiado ✓'); }
+  } catch { /* usuário cancelou */ }
+});
+
+// ---------------- sons para dormir (WebAudio, loop sem emenda) ----------------
+let audioCtx = null; let soundSrc = null; let soundTimer = null;
+function makeNoiseBuffer(type) {
+  const len = audioCtx.sampleRate * 4;
+  const buffer = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  let last = 0; let b0 = 0; let b1 = 0; let b2 = 0;
+  for (let i = 0; i < len; i++) {
+    const white = Math.random() * 2 - 1;
+    if (type === 'brown') { last = (last + 0.02 * white) / 1.02; data[i] = last * 3.5; }
+    else if (type === 'pink') { b0 = 0.997 * b0 + 0.029 * white; b1 = 0.985 * b1 + 0.032 * white; b2 = 0.95 * b2 + 0.048 * white; data[i] = (b0 + b1 + b2 + white * 0.05) * 1.6; }
+    else data[i] = white * 0.5;
+  }
+  // costura do loop: desvanecer as pontas uma na outra para nao clicar
+  const fade = Math.floor(audioCtx.sampleRate * 0.08);
+  for (let i = 0; i < fade; i++) {
+    const t = i / fade;
+    const tail = data[len - fade + i];
+    data[i] = data[i] * t + tail * (1 - t);
+  }
+  return buffer;
+}
+function stopSound() {
+  if (soundSrc) { try { soundSrc.stop(); } catch { /* ja parado */ } soundSrc = null; }
+  clearTimeout(soundTimer);
+  $('btn-sound').textContent = '▶ Tocar som';
+}
+$('btn-sound').addEventListener('click', () => {
+  if (soundSrc) { stopSound(); return; }
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const gain = audioCtx.createGain(); gain.gain.value = 0.55;
+  soundSrc = audioCtx.createBufferSource();
+  soundSrc.buffer = makeNoiseBuffer($('sound-type').value);
+  soundSrc.loop = true;
+  soundSrc.connect(gain).connect(audioCtx.destination);
+  soundSrc.start();
+  $('btn-sound').textContent = '■ Parar som';
+  const mins = Number($('sound-timer').value);
+  if (mins > 0) soundTimer = setTimeout(stopSound, mins * 60000);
+});
+
+// ---------------- contracoes (neste aparelho) ----------------
+let contractionActive = null;
+function renderContractions() {
+  const list = local.contractions;
+  const btn = $('btn-contraction');
+  if (contractionActive) {
+    btn.textContent = `■ Encerrar contração · ${fmtDur(now() - contractionActive.start)}`;
+    btn.classList.add('is-active');
+  } else { btn.textContent = '▶ Começou uma contração'; btn.classList.remove('is-active'); }
+  if (!list.length && !contractionActive) { $('contraction-summary').textContent = 'Nenhuma contração registrada neste aparelho.'; $('contraction-list').innerHTML = ''; return; }
+  const oneHour = list.filter((c) => now() - c.start < 3600000);
+  $('contraction-summary').textContent = `${list.length} no total · ${oneHour.length} na última hora. Regra de bolso: contrações a cada ~5 min, durando ~1 min, por 1 hora = hora de ir para a maternidade (confirme com seu médico).`;
+  $('contraction-list').innerHTML = list.slice(-8).reverse().map((c, idx, arr) => {
+    const prev = list[list.length - 1 - idx - 1];
+    const interval = prev ? fmtDur(c.start - prev.start) : '—';
+    return `<div class="contraction-row"><span>${fmtTime(c.start)}</span><span>duração ${fmtDur(c.end - c.start)}</span><span>intervalo ${interval}</span></div>`;
+  }).join('');
+}
+$('btn-contraction').addEventListener('click', () => {
+  if (!contractionActive) { contractionActive = { start: now() }; }
+  else {
+    local.contractions.push({ start: contractionActive.start, end: now() });
+    if (local.contractions.length > 200) local.contractions = local.contractions.slice(-200);
+    saveLocal(); contractionActive = null;
+  }
+  renderContractions();
+});
+$('btn-contraction-clear').addEventListener('click', () => { local.contractions = []; contractionActive = null; saveLocal(); renderContractions(); });
+
+// ---------------- relogio e inicio ----------------
+setInterval(() => {
+  if (!$('app-view').hidden && state.baby) render();
+  if (!$('app-view').hidden) renderContractions();
+}, 30000);
+applyTheme();
+renderContractions();
+(async function boot() {
+  if (sb) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) { await afterAuth(); return; }
+  }
+  show('auth-view');
 })();

@@ -2,63 +2,175 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f8f5f1">
-  <meta name="description" content="Diário de sono do bebê: registre sonecas, acompanhe a rotina e veja a próxima janela de descanso.">
-  <title>Ninho — diário de sono do bebê</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10151c">
+  <meta name="description" content="Ninho — diário do bebê: sono, mamadas, fraldas e rotina, sincronizado entre os pais.">
+  <title>Ninho — diário do bebê</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
-  <script src="app.js" defer></script>
+  <script src="config.js"></script>
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <a class="brand" href="#inicio" aria-label="Ninho, início"><span class="brand-mark">✳</span><span>ninho<span class="brand-dot">.</span></span></a>
-      <span class="top-note">Um dia de cada vez <span aria-hidden="true">✦</span></span>
-      <button class="profile-chip" id="profile-button" type="button" aria-label="Editar perfil do bebê"><span class="avatar" aria-hidden="true">◕</span><span id="profile-label">Meu bebê</span><span aria-hidden="true">⌄</span></button>
+      <span class="top-note" id="sync-note">Um dia de cada vez ✦</span>
+      <div class="top-actions">
+        <button class="chip-button" id="theme-toggle" type="button" aria-label="Alternar modo claro e noturno">☾</button>
+        <button class="profile-chip" id="profile-button" type="button" aria-label="Editar perfil do bebê"><span class="avatar" aria-hidden="true">◕</span><span id="profile-label">Meu bebê</span><span aria-hidden="true">⌄</span></button>
+      </div>
     </header>
 
-    <main id="inicio">
-      <section class="greeting">
-        <div><p class="eyebrow" id="today-label">HOJE</p><h1>Bom dia, <em>família.</em></h1><p class="intro">O descanso fica mais leve quando a rotina faz sentido.</p></div>
+    <section id="auth-view" class="panel auth-panel" hidden>
+      <p class="eyebrow">BEM-VINDOS AO NINHO</p>
+      <h1>Entrar para sincronizar</h1>
+      <p class="muted">Com a conta, você e sua parceira(o) registram no mesmo bebê, em celulares diferentes, e veem tudo na hora. Sem conta, o app funciona só neste aparelho.</p>
+      <form id="auth-form" class="stack">
+        <label>E-mail<input id="auth-email" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
+        <label>Senha<input id="auth-password" type="password" autocomplete="current-password" required placeholder="Sua senha"></label>
+        <p id="auth-error" class="form-error" role="alert"></p>
+        <button class="primary-button full" type="submit" id="auth-submit">Entrar</button>
+        <button class="text-button" type="button" id="auth-toggle">Ainda não tenho conta — criar agora</button>
+        <button class="text-button" type="button" id="auth-local">Continuar sem conta (só neste aparelho)</button>
+      </form>
+    </section>
+
+    <section id="setup-view" class="panel auth-panel" hidden>
+      <p class="eyebrow">QUASE LÁ</p>
+      <h1>Sua família no Ninho</h1>
+      <div class="stack">
+        <div class="subcard">
+          <h2>Criar a família e o bebê</h2>
+          <form id="family-form" class="stack">
+            <label>Nome do bebê<input id="setup-baby-name" maxlength="40" required placeholder="Ex.: Theo"></label>
+            <label>Data de nascimento (ou prevista)<input id="setup-baby-birth" type="date" required></label>
+            <button class="primary-button full" type="submit">Criar família</button>
+          </form>
+        </div>
+        <div class="subcard">
+          <h2>Sua parceira(o) já criou?</h2>
+          <p class="muted">Peça o código de convite que aparece nas configurações dela(e) e cole aqui:</p>
+          <form id="join-form" class="join-row">
+            <input id="join-code" maxlength="12" placeholder="CÓDIGO" autocomplete="off">
+            <button class="primary-button" type="submit">Entrar</button>
+          </form>
+        </div>
+        <p id="setup-error" class="form-error" role="alert"></p>
+        <button class="text-button" id="setup-logout" type="button">Sair da conta</button>
+      </div>
+    </section>
+
+    <main id="app-view" hidden>
+      <section class="greeting" id="inicio">
+        <div><p class="eyebrow" id="today-label">HOJE</p><h1 id="greeting-title">Bom dia, <em>família.</em></h1><p class="intro" id="baby-age">O descanso fica mais leve quando a rotina faz sentido.</p></div>
         <div class="sun-illustration" aria-hidden="true"><span class="sun"></span><span class="cloud cloud-one"></span><span class="cloud cloud-two"></span><span class="star star-one">✦</span><span class="star star-two">✦</span></div>
       </section>
+
+      <p id="feed-alert" class="alert-banner" hidden></p>
 
       <section class="dashboard-grid" aria-label="Resumo de hoje">
         <article class="card next-card">
           <div class="card-heading"><span class="overline">PRÓXIMO DESCANSO</span><span class="round-icon" aria-hidden="true">☾</span></div>
-          <div id="next-content"><p class="next-time">—</p><p class="muted">Adicione o perfil para começar.</p></div>
+          <div id="next-content"><p class="next-time">—</p><p class="muted">Registre o primeiro descanso para ver uma estimativa.</p></div>
           <div class="progress-track"><span id="window-progress"></span></div>
           <p class="supporting" id="window-note">Uma estimativa gentil para organizar o dia.</p>
         </article>
 
         <article class="card total-card">
-          <div class="card-heading"><span class="overline">SONO DE HOJE</span><span class="round-icon lavender" aria-hidden="true">✧</span></div>
-          <p class="total-number" id="total-sleep">0h 00</p>
-          <p class="muted" id="sleep-count">Nenhum descanso registrado</p>
+          <div class="card-heading"><span class="overline">HOJE</span><span class="round-icon lavender" aria-hidden="true">✧</span></div>
+          <div class="today-stats">
+            <div><p class="total-number" id="total-sleep">0h 00</p><p class="muted">de sono</p></div>
+            <div><p class="total-number" id="total-feeds">0</p><p class="muted">mamadas</p></div>
+            <div><p class="total-number" id="total-diapers">0</p><p class="muted">fraldas</p></div>
+          </div>
+          <p class="muted" id="last-feed">Última mamada: —</p>
+          <p class="muted" id="next-breast"></p>
           <div class="mini-bars" id="mini-bars" aria-label="Sono dos últimos sete dias"></div>
-          <p class="supporting">Últimos 7 dias</p>
+          <p class="supporting">Sono nos últimos 7 dias</p>
         </article>
       </section>
 
-      <section class="action-strip" aria-label="Registrar sono">
-        <div><span class="action-icon" aria-hidden="true">☾</span><div><h2 id="action-title">Hora de registrar um soninho?</h2><p id="action-subtitle">Acompanhe cada descanso sem complicação.</p></div></div>
-        <button id="toggle-sleep" class="primary-button" type="button">Começar sono <span aria-hidden="true">↗</span></button>
+      <section class="card actions-card" aria-label="Registrar agora">
+        <div class="card-heading"><span class="overline">REGISTRAR AGORA</span><span class="muted" id="active-timers-label"></span></div>
+        <div class="action-grid">
+          <button class="action-button" id="btn-sleep" type="button"><span>☾</span> Sono</button>
+          <button class="action-button" id="btn-breast-left" type="button"><span>◐</span> Peito esquerdo</button>
+          <button class="action-button" id="btn-breast-right" type="button"><span>◑</span> Peito direito</button>
+          <button class="action-button" id="btn-bottle" type="button"><span>🍼</span> Mamadeira</button>
+          <button class="action-button" id="btn-pump" type="button"><span>⚗</span> Ordenha</button>
+          <button class="action-button" id="btn-diaper-wet" type="button"><span>💧</span> Fralda · xixi</button>
+          <button class="action-button" id="btn-diaper-dirty" type="button"><span>💩</span> Fralda · cocô</button>
+          <button class="action-button" id="btn-diaper-both" type="button"><span>💧💩</span> Fralda · os dois</button>
+          <button class="action-button" id="btn-tummy" type="button"><span>🐢</span> Barriguinha</button>
+          <button class="action-button" id="btn-bath" type="button"><span>🛁</span> Banho</button>
+          <button class="action-button" id="btn-weight" type="button"><span>⚖</span> Peso e medidas</button>
+          <button class="action-button" id="btn-temp" type="button"><span>🌡</span> Temperatura</button>
+          <button class="action-button" id="btn-medicine" type="button"><span>💊</span> Remédio</button>
+          <button class="action-button" id="btn-manual" type="button"><span>＋</span> Registro manual</button>
+        </div>
+        <p class="muted tiny">Botões com cronômetro (sono, peito, barriguinha): toque para começar e de novo para encerrar. Fralda e banho são 1 toque só.</p>
+      </section>
+
+      <section class="lower-grid">
+        <article class="card sounds-card">
+          <div class="card-heading"><span class="overline">SONS PARA DORMIR</span><span class="round-icon" aria-hidden="true">♫</span></div>
+          <div class="sound-row">
+            <select id="sound-type" aria-label="Tipo de som">
+              <option value="brown">Útero / marrom (grave e aconchegante)</option>
+              <option value="pink">Chuva suave (rosa)</option>
+              <option value="white">Ruído branco</option>
+            </select>
+            <select id="sound-timer" aria-label="Desligar sozinho em">
+              <option value="0">Sem timer</option>
+              <option value="15">15 min</option>
+              <option value="30">30 min</option>
+              <option value="60">60 min</option>
+            </select>
+          </div>
+          <button class="primary-button full" id="btn-sound" type="button">▶ Tocar som</button>
+          <p class="muted tiny">Loop contínuo, sem emendas — como nos apps grandes. O som continua com a tela apagada.</p>
+        </article>
+
+        <article class="card contractions-card">
+          <div class="card-heading"><span class="overline">CONTRAÇÕES · PARA O GRANDE DIA</span><span class="round-icon lavender" aria-hidden="true">⏱</span></div>
+          <button class="primary-button full" id="btn-contraction" type="button">▶ Começou uma contração</button>
+          <p class="muted" id="contraction-summary">Nenhuma contração registrada neste aparelho.</p>
+          <div id="contraction-list" class="contraction-list"></div>
+          <button class="text-button" id="btn-contraction-clear" type="button">Limpar contrações</button>
+        </article>
       </section>
 
       <section class="lower-grid">
         <article class="timeline-panel">
-          <div class="section-title"><div><p class="eyebrow">DIÁRIO</p><h2>O dia em detalhes</h2></div><button id="add-manual" class="text-button" type="button">+ Adicionar sono</button></div>
+          <div class="section-title"><div><p class="eyebrow">DIÁRIO</p><h2>O dia em detalhes</h2></div></div>
           <div id="timeline" class="timeline" aria-live="polite"></div>
         </article>
-        <aside class="tip-card"><span class="tip-icon" aria-hidden="true">✦</span><p class="overline">UM LEMBRETE CARINHOSO</p><h2>Seu bebê tem seu próprio ritmo.</h2><p>As janelas de sono são apenas referências. Observe os sinais de cansaço e ajuste a rotina com carinho.</p><span class="tip-squiggle" aria-hidden="true">〰</span></aside>
+        <aside class="tip-card"><span class="tip-icon" aria-hidden="true">✦</span><p class="overline">UM LEMBRETE CARINHOSO</p><h2>Seu bebê tem seu próprio ritmo.</h2><p>As janelas de sono são apenas referências gerais, não orientação médica. Observe os sinais de cansaço do seu filho e, na dúvida, fale com o pediatra.</p><span class="tip-squiggle" aria-hidden="true">〰</span></aside>
+      </section>
+
+      <section class="card settings-card">
+        <div class="card-heading"><span class="overline">FAMÍLIA E CONTA</span></div>
+        <p class="muted" id="family-info">—</p>
+        <p class="muted">Código de convite (passe para sua parceira(o) entrar na mesma família):</p>
+        <p class="invite-code" id="invite-code">—</p>
+        <p class="muted" id="growth-info"></p>
+        <div class="settings-row">
+          <button class="text-button" id="btn-export" type="button">Compartilhar resumo (pediatra)</button>
+          <button class="text-button" id="btn-logout" type="button">Sair</button>
+        </div>
       </section>
     </main>
+
     <footer>Feito para os pequenos momentos de pausa. <span>♡</span></footer>
   </div>
 
-  <dialog id="profile-dialog" class="modal"><form id="profile-form" method="dialog"><div class="modal-head"><h2>Perfil do bebê</h2><button class="close-button" type="button" data-close="profile-dialog" aria-label="Fechar">×</button></div><p>Essas informações ajudam a estimar a próxima janela de descanso.</p><label>Nome do bebê<input id="baby-name" name="baby-name" maxlength="40" placeholder="Ex.: Luna" required></label><label>Data de nascimento<input id="baby-birth" name="baby-birth" type="date" required></label><button class="primary-button full" type="submit">Salvar perfil</button></form></dialog>
-  <dialog id="sleep-dialog" class="modal"><form id="sleep-form" method="dialog"><div class="modal-head"><h2>Adicionar sono</h2><button class="close-button" type="button" data-close="sleep-dialog" aria-label="Fechar">×</button></div><p>Registre um período de sono que já terminou.</p><label>Início<input id="sleep-start" name="sleep-start" type="datetime-local" required></label><label>Fim<input id="sleep-end" name="sleep-end" type="datetime-local" required></label><p id="form-error" class="form-error" role="alert"></p><button class="primary-button full" type="submit">Salvar descanso</button></form></dialog>
+  <div id="toast" class="toast" hidden></div>
+
+  <dialog id="profile-dialog" class="modal"><form id="profile-form" method="dialog"><div class="modal-head"><h2>Perfil do bebê</h2><button class="close-button" type="button" data-close="profile-dialog" aria-label="Fechar">×</button></div><p>Essas informações ajudam a estimar a próxima janela de descanso.</p><label>Nome do bebê<input id="baby-name" name="baby-name" maxlength="40" required></label><label>Data de nascimento<input id="baby-birth" name="baby-birth" type="date" required></label><button class="primary-button full" type="submit">Salvar perfil</button></form></dialog>
+
+  <dialog id="quick-dialog" class="modal"><form id="quick-form" method="dialog"><div class="modal-head"><h2 id="quick-title">Registrar</h2><button class="close-button" type="button" data-close="quick-dialog" aria-label="Fechar">×</button></div><div id="quick-fields" class="stack"></div><p id="quick-error" class="form-error" role="alert"></p><button class="primary-button full" type="submit">Salvar</button></form></dialog>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>
