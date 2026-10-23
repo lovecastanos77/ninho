@@ -775,7 +775,7 @@ async function renderSoundBlob(type) {
       offlineLfo(off, 1 / 12, 330, filter.frequency);
       offlineLfo(off, 1 / 12, 0.26, waves.gain);
     } else if (type === 'forest') {
-      const breeze = off.createGain(); breeze.gain.value = 0.32;
+      const breeze = off.createGain(); breeze.gain.value = 0.07;
       src.connect(breeze).connect(master);
       for (const t0 of [0.8, 2.4, 4.2, 5.8, 7.6, 9.5, 11.0]) {
         const o = off.createOscillator(); o.type = 'sine';
@@ -785,7 +785,7 @@ async function renderSoundBlob(type) {
         o.frequency.exponentialRampToValueAtTime(f0 * 1.35, t0 + 0.07);
         o.frequency.exponentialRampToValueAtTime(f0 * 0.92, t0 + 0.16);
         g.gain.setValueAtTime(0, t0);
-        g.gain.linearRampToValueAtTime(0.085, t0 + 0.03);
+        g.gain.linearRampToValueAtTime(0.06, t0 + 0.03);
         g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
         o.connect(g).connect(master);
         o.start(t0); o.stop(t0 + 0.25);
