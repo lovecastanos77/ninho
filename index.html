@@ -188,6 +188,23 @@
 
   <dialog id="quick-dialog" class="modal"><form id="quick-form" method="dialog"><div class="modal-head"><h2 id="quick-title">Registrar</h2><button class="close-button" type="button" data-close="quick-dialog" aria-label="Fechar">×</button></div><div id="quick-fields" class="stack"></div><p id="quick-error" class="form-error" role="alert"></p><button class="primary-button full" type="submit">Salvar</button></form></dialog>
 
+  <script>
+    // Vigia anti-tela-branca: se o app principal nao revelar nenhuma tela em 7s,
+    // mostra a tela de entrada com um aviso (independente do script principal).
+    window.__ninhoWatchdog = setTimeout(function () {
+      if (window.__ninhoBooted) return;
+      var auth = document.getElementById('auth-view');
+      var anyVisible = ['auth-view', 'setup-view', 'app-view'].some(function (id) {
+        var el = document.getElementById(id);
+        return el && !el.hidden;
+      });
+      if (!anyVisible && auth) {
+        auth.hidden = false;
+        var err = document.getElementById('auth-error');
+        if (err) err.textContent = 'Demorou para carregar. Verifique a internet e recarregue a página (no computador: Cmd+Shift+R).';
+      }
+    }, 7000);
+  </script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

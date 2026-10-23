@@ -3,9 +3,21 @@
 // A configuracao (URL + chave publica) vem de config.js, carregado no index.html.
 
 let createClient = null;
+async function importSdk(url, ms) {
+  let timer;
+  try {
+    return await Promise.race([
+      import(url),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), ms); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
 try {
-  ({ createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'));
-} catch { createClient = null; }
+  ({ createClient } = await importSdk('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm', 9000));
+} catch {
+  try { ({ createClient } = await importSdk('https://unpkg.com/@supabase/supabase-js@2/+esm', 9000)); }
+  catch { createClient = null; }
+}
 
 const CFG = window.NINHO_CONFIG || {};
 const sb = (createClient && CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY)
@@ -714,17 +726,25 @@ setInterval(() => {
 applyTheme();
 renderContractions();
 (async function boot() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('local') === '1') { enterLocal(); return; } // atalho interno de testes
-  if (sb) {
-    const { data: { session } } = await sb.auth.getSession();
-    if (session) { await afterAuth(); return; }
-    const urlToken = params.get('token');
-    const savedToken = urlToken || localStorage.getItem('ninho-token');
-    if (savedToken) {
-      const r = await enterWithToken(savedToken);
-      if (r !== 'erro') return;
-    }
-  }
+  // Mostra a tela de entrada NA HORA: a rede (sessao/token) decide depois se troca de tela.
   show('auth-view');
+  window.__ninhoBooted = true;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('local') === '1') { enterLocal(); return; } // atalho interno de testes
+    if (sb) {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) { await afterAuth(); return; }
+      const urlToken = params.get('token');
+      const savedToken = urlToken || localStorage.getItem('ninho-token');
+      if (savedToken) {
+        const r = await enterWithToken(savedToken);
+        if (r !== 'erro') return;
+      }
+    } else {
+      $('auth-error').textContent = 'A conexão com a nuvem demorou para carregar. Recarregue a página.';
+    }
+  } catch {
+    show('auth-view');
+  }
 })();

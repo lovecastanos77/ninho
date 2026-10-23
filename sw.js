@@ -1,5 +1,6 @@
-// Ninho — service worker: app abre offline; dados da nuvem sempre vem da rede.
-const CACHE = 'ninho-v1';
+// Ninho — service worker v2: rede primeiro (atualizacoes chegam na hora),
+// cache como reserva para abrir offline. Dados da nuvem sempre vem da rede.
+const CACHE = 'ninho-v2';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './config.js', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -14,23 +15,17 @@ self.addEventListener('activate', (event) => {
 });
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  // Nuvem (Supabase) e fontes: sempre rede, sem cache.
-  if (url.origin !== self.location.origin) return;
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put('./index.html', copy));
-        return res;
-      }).catch(() => caches.match('./index.html'))
-    );
-    return;
-  }
+  if (url.origin !== self.location.origin || event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((hit) => hit || fetch(event.request).then((res) => {
+    fetch(event.request).then((res) => {
       const copy = res.clone();
       caches.open(CACHE).then((c) => c.put(event.request, copy));
       return res;
-    }))
+    }).catch(async () => {
+      const hit = await caches.match(event.request, { ignoreSearch: true });
+      if (hit) return hit;
+      if (event.request.mode === 'navigate') return caches.match('./index.html');
+      throw new Error('offline e sem cache');
+    })
   );
 });
