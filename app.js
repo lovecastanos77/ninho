@@ -882,6 +882,7 @@ const VACCINES = [
   { id: 'vip3', m: 6, name: 'Poliomielite (VIP)', dose: '3ª dose' },
   { id: 'flu1', m: 6, name: 'Influenza', dose: '1ª dose (campanha)' },
   { id: 'covid1', m: 6, name: 'Covid-19', dose: '1ª dose' },
+  { id: 'vsr1', m: 6, name: 'Bronquiolite (VSR) · Nirsevimabe', dose: 'dose única (anticorpo)' },
   { id: 'covid2', m: 7, name: 'Covid-19', dose: '2ª dose' },
   { id: 'flu2', m: 7, name: 'Influenza', dose: '2ª dose (só na primeira vez)' },
   { id: 'fa1', m: 9, name: 'Febre Amarela', dose: 'dose única' },
