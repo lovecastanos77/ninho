@@ -124,6 +124,25 @@
         <p class="muted tiny">Curvas da OMS para meninos (0-24 meses). Percentil é referência da população — não é nota; o acompanhamento é com o pediatra.</p>
       </section>
 
+      <section class="card health-card" aria-label="Caderneta de saúde">
+        <div class="card-heading"><span class="overline">CADERNETA DE SAÚDE</span><span aria-hidden="true">🩺</span></div>
+        <p class="next-vaccine" id="next-vaccine"></p>
+        <div class="vitamin-row">
+          <div><strong>Vitamina D de hoje</strong><p class="muted tiny">Prescrição comum no 1º ano: uma dose por dia.</p></div>
+          <button class="primary-button" id="btn-vitamin" type="button">Dar a vitamina</button>
+        </div>
+        <div class="vitamin-dots" id="vitamin-dots" aria-label="Vitamina dos últimos 7 dias"></div>
+        <h3 class="health-subtitle">Vacinas · calendário oficial (SUS)</h3>
+        <div id="vaccine-list"></div>
+        <p class="muted tiny">Datas previstas calculadas a partir do nascimento. Quem manda é a caderneta de papel e a equipe da sala de vacinação — isto aqui é um lembrete carinhoso. Influenza: depois das doses do primeiro ano, uma dose por ano na campanha.</p>
+        <h3 class="health-subtitle">Perguntas para o pediatra</h3>
+        <form id="question-form" class="question-form">
+          <input id="question-input" maxlength="140" placeholder="Ex.: até quando vai a cólica?" aria-label="Nova pergunta para o pediatra">
+          <button class="primary-button" type="submit">Anotar</button>
+        </form>
+        <div id="question-list"></div>
+      </section>
+
       <section class="card actions-card" aria-label="Registrar agora">
         <div class="card-heading"><span class="overline">REGISTRAR AGORA</span><span class="muted" id="active-timers-label"></span></div>
         <div class="action-grid">

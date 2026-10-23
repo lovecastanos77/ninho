@@ -92,3 +92,26 @@
 .icons-help ul{margin:10px 0 2px;padding-left:18px}
 .icons-help li{font-size:13px;line-height:1.6;color:#5c6f66;margin:5px 0}
 .modal textarea{display:block;width:100%;margin-top:7px;border:1px solid #deded6;border-radius:11px;background:#fcfaf7;color:#28433d;padding:13px;font:inherit;resize:vertical}
+
+.health-card{background:#fff;border:1px solid #eeebe5;border-radius:23px;padding:24px;min-height:0}
+.next-vaccine{font:500 19px/1.4 Fraunces,serif;color:#28433d;margin:8px 0 16px}
+.vitamin-row{display:flex;align-items:center;justify-content:space-between;gap:16px;background:#f8f5f1;border-radius:14px;padding:12px 14px}
+.vitamin-row .primary-button.is-done{background:#6e9e7d;color:#fff}
+.vitamin-dots{display:flex;gap:7px;margin:10px 2px 4px}
+.vdot{width:13px;height:13px;border-radius:50%;border:2px solid #cbdccc;display:inline-block}
+.vdot.on{background:#6e9e7d;border-color:#6e9e7d}
+.health-subtitle{font:600 15px Fraunces,serif;color:#28433d;margin:20px 0 6px}
+.vax-group{font-size:11px;font-weight:700;letter-spacing:1.6px;color:#a78b77;margin:14px 0 4px}
+.vax-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0ece5}
+.vax-row.done{opacity:.75}
+.vax-check{color:#6e9e7d;font-weight:700;width:16px;text-align:center;flex:none}
+.vax-check.pending{color:#c3cdc4}
+.vax-main{flex:1;font-size:13.5px;color:#39544d}
+.vax-main small{display:block;color:#89968e;font-size:12px}
+.vax-late{color:#b74f49}
+.question-form{display:flex;gap:9px;margin:10px 0}
+.question-form input{flex:1;border:1px solid #deded6;border-radius:11px;background:#fcfaf7;color:#28433d;padding:12px;font:inherit;min-width:0}
+.question-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0ece5}
+.question-row .q-text{flex:1;font-size:14px;color:#39544d}
+.question-row.asked .q-text{text-decoration:line-through;color:#89968e}
+.q-toggle{border:1px solid #cbdccc;background:#fff;border-radius:50%;width:24px;height:24px;flex:none;color:#6e9e7d;font-weight:700;line-height:1}

@@ -395,7 +395,7 @@ function renderTip(birth) {
 }
 
 // ---------------- renderizacao ----------------
-const ICONS = { sleep: '☾', feeding: '🍼', diaper: '✦', weight: '⚖', temperature: '🌡', tummy: '🐢', bath: '🛁', medicine: '💊', note: '✎' };
+const ICONS = { sleep: '☾', feeding: '🍼', diaper: '✦', weight: '⚖', temperature: '🌡', tummy: '🐢', bath: '🛁', medicine: '💊', note: '✎', vaccine: '💉', vitamin: '☀' };
 function activeOf(type, kind) {
   return state.events.find((e) => e.type === type && (kind === undefined || e.kind === kind) && !e.endsAt) || null;
 }
@@ -416,6 +416,8 @@ function eventLabel(e) {
     case 'tummy': return 'Barriguinha (tummy time)';
     case 'bath': return 'Banho';
     case 'medicine': return `Remédio${e.note ? ` · ${esc(e.note)}` : ''}`;
+    case 'vaccine': return `Vacina · ${esc(vaccineName(e.note))}`;
+    case 'vitamin': return 'Vitamina D';
     default: return e.note || 'Nota';
   }
 }
@@ -461,6 +463,7 @@ function render() {
   renderBars();
   renderGrowth();
   renderBirth();
+  renderHealth();
   renderTimeline();
   renderButtons();
   renderSettings();
@@ -522,7 +525,7 @@ function renderBars() {
 }
 function renderTimeline() {
   const box = $('timeline');
-  const list = state.events.slice(0, 30);
+  const list = state.events.filter((e) => e.type !== 'vitamin' && e.type !== 'question').slice(0, 30);
   if (!list.length) {
     box.innerHTML = '<div class="empty-state"><span>✦</span>Nenhum registro ainda. Toque em um botão acima para começar.</div>';
     return;
@@ -856,6 +859,143 @@ document.querySelectorAll('.growth-tab').forEach((b) => b.addEventListener('clic
   document.querySelectorAll('.growth-tab').forEach((x) => x.classList.toggle('is-active', x === b));
   drawGrowthChart(growthMetric);
 }));
+
+
+// ---------------- caderneta de saude ----------------
+// Calendario Nacional de Vacinacao (PNI/MS), conferido em out/2026.
+// Vacina aplicada, vitamina do dia e perguntas vivem como eventos — sincronizam
+// entre os pais sem precisar de tabela nova.
+const VACCINES = [
+  { id: 'bcg', m: 0, name: 'BCG', dose: 'dose única' },
+  { id: 'hepb1', m: 0, name: 'Hepatite B', dose: '1ª dose' },
+  { id: 'penta1', m: 2, name: 'Pentavalente (DTP + Hib + Hep B)', dose: '1ª dose' },
+  { id: 'vip1', m: 2, name: 'Poliomielite (VIP)', dose: '1ª dose' },
+  { id: 'pneu1', m: 2, name: 'Pneumocócica', dose: '1ª dose' },
+  { id: 'rota1', m: 2, name: 'Rotavírus', dose: '1ª dose' },
+  { id: 'menc1', m: 3, name: 'Meningocócica C', dose: '1ª dose' },
+  { id: 'penta2', m: 4, name: 'Pentavalente (DTP + Hib + Hep B)', dose: '2ª dose' },
+  { id: 'vip2', m: 4, name: 'Poliomielite (VIP)', dose: '2ª dose' },
+  { id: 'pneu2', m: 4, name: 'Pneumocócica', dose: '2ª dose' },
+  { id: 'rota2', m: 4, name: 'Rotavírus', dose: '2ª dose' },
+  { id: 'menc2', m: 5, name: 'Meningocócica C', dose: '2ª dose' },
+  { id: 'penta3', m: 6, name: 'Pentavalente (DTP + Hib + Hep B)', dose: '3ª dose' },
+  { id: 'vip3', m: 6, name: 'Poliomielite (VIP)', dose: '3ª dose' },
+  { id: 'flu1', m: 6, name: 'Influenza', dose: '1ª dose (campanha)' },
+  { id: 'covid1', m: 6, name: 'Covid-19', dose: '1ª dose' },
+  { id: 'covid2', m: 7, name: 'Covid-19', dose: '2ª dose' },
+  { id: 'flu2', m: 7, name: 'Influenza', dose: '2ª dose (só na primeira vez)' },
+  { id: 'fa1', m: 9, name: 'Febre Amarela', dose: 'dose única' },
+  { id: 'covid3', m: 9, name: 'Covid-19', dose: '3ª dose' },
+  { id: 'pneuR', m: 12, name: 'Pneumocócica', dose: 'reforço' },
+  { id: 'acwy', m: 12, name: 'Meningocócica ACWY', dose: 'reforço' },
+  { id: 'tv1', m: 12, name: 'Tríplice Viral', dose: '1ª dose' },
+  { id: 'dtp1', m: 15, name: 'DTP (tríplice bacteriana)', dose: '1º reforço' },
+  { id: 'vipR', m: 15, name: 'Poliomielite (VIP)', dose: 'reforço' },
+  { id: 'hepa', m: 15, name: 'Hepatite A', dose: 'dose única' },
+  { id: 'tetra', m: 15, name: 'Tetra Viral', dose: 'dose única' },
+  { id: 'dtp2', m: 48, name: 'DTP', dose: '2º reforço' },
+  { id: 'vipR2', m: 48, name: 'Poliomielite (VIP)', dose: '2º reforço' },
+  { id: 'var2', m: 48, name: 'Varicela', dose: '2ª dose' },
+  { id: 'faR', m: 48, name: 'Febre Amarela', dose: 'reforço' },
+];
+function vaccineName(id) { return VACCINES.find((v) => v.id === id)?.name || id || ''; }
+function dueTs(birthStr, months) { const d = new Date(`${birthStr}T12:00:00`); d.setMonth(d.getMonth() + months); return d.getTime(); }
+function ageGroupLabel(m) { return m === 0 ? 'Ao nascer' : m < 24 ? `${m} meses` : `${m / 12} anos`; }
+function renderHealth() {
+  const listBox = $('vaccine-list'); const nextBox = $('next-vaccine');
+  if (!listBox || !nextBox || !state.baby) return;
+  const birth = state.baby.birth_date || '';
+  const born = birth && ageDaysOf(birth) >= 0;
+  const applied = new Map();
+  for (const e of state.events) if (e.type === 'vaccine' && e.note) applied.set(e.note, e);
+  // vitamina do dia + ultimos 7 dias
+  const vitToday = state.events.find((e) => e.type === 'vitamin' && dayKey(e.startsAt) === dayKey(now()));
+  const btn = $('btn-vitamin');
+  if (btn) {
+    btn.textContent = vitToday ? '✓ Vitamina dada hoje' : 'Dar a vitamina';
+    btn.classList.toggle('is-done', !!vitToday);
+    btn.disabled = !born;
+  }
+  const dots = $('vitamin-dots');
+  if (dots) {
+    let dh = '';
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - i);
+      const has = state.events.some((e) => e.type === 'vitamin' && dayKey(e.startsAt) === dayKey(d.getTime()));
+      dh += `<span class="vdot${has ? ' on' : ''}" title="${d.toLocaleDateString('pt-BR')}"></span>`;
+    }
+    dots.innerHTML = dh;
+  }
+  // proxima vacina
+  if (!birth) nextBox.textContent = 'As vacinas aparecem aqui quando o nascimento estiver no perfil.';
+  else if (!born) nextBox.textContent = 'Primeiras vacinas: BCG e Hepatite B, ainda na maternidade. 💛';
+  else {
+    const pending = VACCINES.filter((v) => !applied.has(v.id))
+      .map((v) => ({ v, due: dueTs(birth, v.m) }))
+      .sort((a, b) => a.due - b.due);
+    if (!pending.length) nextBox.textContent = 'Vacinas em dia por aqui ✓ (calendário até os 4 anos)';
+    else {
+      const { v, due } = pending[0];
+      const dias = Math.ceil((due - now()) / 86400000);
+      const data = new Date(due).toLocaleDateString('pt-BR');
+      nextBox.textContent = dias < 0
+        ? `⚠ Vacina atrasada: ${v.name} (${v.dose}) — era para ${data}. Vale passar na UBS.`
+        : dias === 0
+          ? `💉 Hoje é dia de vacina: ${v.name} (${v.dose}).`
+          : `💉 Próxima vacina: ${v.name} (${v.dose}) — em ${dias} ${dias === 1 ? 'dia' : 'dias'} (${data}).`;
+    }
+  }
+  // lista agrupada por idade
+  const groups = [...new Set(VACCINES.map((v) => v.m))];
+  listBox.innerHTML = groups.map((m) => {
+    const rows = VACCINES.filter((v) => v.m === m).map((v) => {
+      const ev = applied.get(v.id);
+      if (ev) {
+        return `<div class="vax-row done"><span class="vax-check">✓</span><div class="vax-main"><strong>${v.name}</strong> · ${v.dose}<small>aplicada em ${new Date(ev.startsAt).toLocaleDateString('pt-BR')}</small></div><button class="text-button" type="button" data-unvax="${ev.id}">desfazer</button></div>`;
+      }
+      const due = birth ? new Date(dueTs(birth, v.m)).toLocaleDateString('pt-BR') : '';
+      const atrasada = born && dueTs(birth, v.m) < now();
+      return `<div class="vax-row"><span class="vax-check pending">○</span><div class="vax-main"><strong>${v.name}</strong> · ${v.dose}<small>${birth ? `prevista para ${due}` : ''}${atrasada ? ' · <b class="vax-late">atrasada</b>' : ''}</small></div><button class="text-button" type="button" data-vax="${v.id}">marcar aplicada</button></div>`;
+    }).join('');
+    return `<h4 class="vax-group">${ageGroupLabel(m)}</h4>${rows}`;
+  }).join('');
+  // perguntas
+  const qs = state.events.filter((e) => e.type === 'question');
+  $('question-list').innerHTML = qs.length ? qs.map((q) => `
+    <div class="question-row${q.endsAt ? ' asked' : ''}">
+      <button class="q-toggle" type="button" data-qtoggle="${q.id}" aria-label="Marcar como perguntada">${q.endsAt ? '✓' : '○'}</button>
+      <span class="q-text">${esc(q.note || '')}</span>
+      <button class="delete-button" type="button" data-qdel="${q.id}" aria-label="Excluir pergunta">×</button>
+    </div>`).join('') : '<p class="muted tiny">Nenhuma pergunta anotada. A primeira consulta costuma ser nos primeiros 7–10 dias de vida.</p>';
+}
+$('btn-vitamin').addEventListener('click', async () => {
+  const today = state.events.find((e) => e.type === 'vitamin' && dayKey(e.startsAt) === dayKey(now()));
+  if (today) { await deleteEvent(today.id); }
+  else { await addEvent({ type: 'vitamin', endsAt: now() }); toast('Vitamina D registrada ☀'); }
+  renderHealth();
+});
+$('question-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const text = $('question-input').value.trim();
+  if (!text) return;
+  $('question-input').value = '';
+  await addEvent({ type: 'question', note: text, endsAt: null });
+  renderHealth();
+});
+document.addEventListener('click', async (ev) => {
+  const apply = ev.target.closest?.('[data-vax]');
+  if (apply) { await addEvent({ type: 'vaccine', note: apply.dataset.vax, endsAt: now() }); toast('Vacina marcada como aplicada 💉'); renderHealth(); return; }
+  const undo = ev.target.closest?.('[data-unvax]');
+  if (undo) { await deleteEvent(undo.dataset.unvax); renderHealth(); return; }
+  const qt = ev.target.closest?.('[data-qtoggle]');
+  if (qt) {
+    const q = state.events.find((e) => e.id === qt.dataset.qtoggle);
+    if (q) { await updateEvent(q.id, { endsAt: q.endsAt ? null : now() }); renderHealth(); }
+    return;
+  }
+  const qd = ev.target.closest?.('[data-qdel]');
+  if (qd) { await deleteEvent(qd.dataset.qdel); renderHealth(); }
+});
 
 // ---------------- sons para dormir ----------------
 // Estrategia robusta: o som e GERADO como arquivo (WAV) dentro do aparelho e tocado
