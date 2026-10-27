@@ -148,3 +148,19 @@ body.has-bnav{padding-bottom:78px}
 .card.is-collapsed .card-heading.collapsible::after{content:'▸'}
 .card.is-collapsed>*:not(.card-heading){display:none}
 .card.is-collapsed{min-height:0}
+
+/* relogio do dia (layout tipo relogio) */
+.clock-wrap{position:relative;width:min(250px,100%);margin:24px auto 4px}
+.clock-wrap svg{display:block;width:100%;height:auto}
+.clock-face{fill:#fffaf5;stroke:#e9e4dd;stroke-width:1}
+.tick{stroke:#d8d2c6;stroke-width:1.5;stroke-linecap:round}
+.tick.major{stroke:#a78b77;stroke-width:2.5}
+.arc-sleep{stroke:#6e9e7d}
+.arc-next{stroke:#d49174}
+.now-dot{fill:#28433d;stroke:#fffaf5;stroke-width:2}
+.clock-center{position:absolute;inset:0;display:grid;place-content:center;text-align:center;pointer-events:none;padding:0 54px}
+.clock-big{font:600 25px/1.15 Fraunces,serif;color:#28433d;margin:0}
+.clock-sub{font-size:12px;line-height:1.4;color:#768880;margin:5px 0 0}
+.clock-legend{text-align:center;font-size:12px;color:#768880;margin:10px 0 0}
+.clock-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 5px 0 12px;vertical-align:-1px}
+.clock-legend i.sleep{background:#6e9e7d}.clock-legend i.next{background:#d49174}

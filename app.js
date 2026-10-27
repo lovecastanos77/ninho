@@ -507,6 +507,7 @@ function render() {
   } else { alert.hidden = true; }
 
   renderNextNap(birth);
+  renderDayClock(birth);
   renderBars();
   renderGrowth();
   renderBirth();
@@ -552,6 +553,99 @@ function renderNextNap(birth) {
   box.innerHTML = `<p class="next-time">${fmtTime(from.getTime())} – ${fmtTime(to.getTime())}</p><p class="muted">acordado há ${fmtDur(awake)} · janela de ${adjLo}–${adjHi} min${napDur < 40 ? ' (soneca curta: janela encurtada)' : ''}</p>`;
   $('window-progress').style.width = `${Math.min(100, Math.max(0, (awake / (adjHi * 60000)) * 100))}%`;
   $('window-note').textContent = awake > adjHi * 60000 ? 'A janela estimada já passou — observe os sinais de sono.' : 'Uma estimativa gentil para organizar o dia.';
+}
+// ---------------- relogio do dia (layout tipo relogio) ----------------
+// Mostrador circular de 24h, no visual do Ninho: sonecas de hoje em verde,
+// proxima janela em terracota, ponto escuro = agora. Antes do nascimento,
+// mostra uma previa do layout (rotulada) para o desenho poder ser avaliado.
+function clockXY(min, r) {
+  const a = (min / 1440) * Math.PI * 2 - Math.PI / 2;
+  return [120 + r * Math.cos(a), 120 + r * Math.sin(a)];
+}
+function clockArc(min0, min1, r, cls, w) {
+  let span = min1 - min0;
+  if (span <= 0) span += 1440;
+  if (span >= 1440) return '';
+  const [x0, y0] = clockXY(min0, r);
+  const [x1, y1] = clockXY(min0 + span, r);
+  const large = span > 720 ? 1 : 0;
+  return `<path d="M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}" fill="none" stroke-width="${w}" stroke-linecap="round" class="${cls}"/>`;
+}
+function renderDayClock(birth) {
+  const svg = $('day-clock');
+  if (!svg) return;
+  const big = $('clock-big');
+  const sub = $('clock-sub');
+  const legend = $('clock-legend');
+  const note = $('clock-note');
+  const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+  const t0ms = t0.getTime();
+  const nowMs = now();
+  const nowMin = (nowMs - t0ms) / 60000;
+  const minOf = (ms) => (ms - t0ms) / 60000;
+  const agePre = ageDaysOf(birth);
+
+  let arcs = '';
+  let centerBig = '';
+  let centerSub = '';
+  let legendHtml = '<i class="sleep"></i>sonecas de hoje <i class="next"></i>próxima janela';
+  let noteText = '';
+
+  if (birth && agePre < 0) {
+    // Previa do layout antes do nascimento (horarios ilustrativos, rotulados).
+    const demo = [[480, 525], [615, 675], [780, 840], [945, 990], [1095, 1140]];
+    arcs = demo.map(([a, b]) => clockArc(a, b, 92, 'arc-sleep', 11)).join('');
+    centerBig = 'Prévia';
+    centerSub = 'o relógio do Henrique começa no nascimento';
+    legendHtml = '<i class="sleep"></i>prévia do dia';
+    noteText = 'Prévia do layout — os horários reais entram com os registros.';
+  } else {
+    const sleeping = activeOf('sleep');
+    const sleeps = state.events.filter((e) => e.type === 'sleep' && e.startsAt < t0ms + 86400000 && (e.endsAt || nowMs) > t0ms);
+    for (const s of sleeps) {
+      const a = minOf(s.startsAt);
+      const b = s.endsAt ? minOf(s.endsAt) : nowMin;
+      if (b - a >= 1) arcs += clockArc(a, b, 92, 'arc-sleep', 11);
+    }
+    if (sleeping) {
+      centerBig = 'Dormindo';
+      centerSub = `há ${fmtDur(nowMs - sleeping.startsAt)}`;
+    } else {
+      const lastSleep = state.events.find((e) => e.type === 'sleep' && e.endsAt);
+      if (!lastSleep) {
+        centerBig = 'Primeiro dia';
+        centerSub = 'registre o primeiro descanso para o relógio se desenhar';
+        noteText = 'O relógio se desenha com os registros de sono.';
+      } else {
+        const age = ageDaysOf(birth);
+        const [lo, hi] = wakeWindow(age);
+        let adjLo = lo; let adjHi = hi;
+        const napDur = (lastSleep.endsAt - lastSleep.startsAt) / 60000;
+        if (napDur > 0 && napDur < 40) { adjLo = Math.max(20, lo - 15); adjHi = Math.max(adjLo + 10, hi - 15); }
+        const from = lastSleep.endsAt + adjLo * 60000;
+        const to = lastSleep.endsAt + adjHi * 60000;
+        arcs += clockArc(minOf(from), minOf(to), 92, 'arc-next', 11);
+        if (nowMs < from) { centerBig = `em ${fmtDur(from - nowMs)}`; centerSub = 'para a próxima soneca'; }
+        else if (nowMs <= to) { centerBig = 'Janela aberta'; centerSub = `até ${fmtTime(to)}`; }
+        else { centerBig = 'Janela passou'; centerSub = 'observe os sinais de sono'; }
+      }
+    }
+  }
+
+  let ticks = '';
+  for (let h = 0; h < 24; h++) {
+    const major = h % 6 === 0;
+    const [x0, y0] = clockXY(h * 60, major ? 100 : 104);
+    const [x1, y1] = clockXY(h * 60, 110);
+    ticks += `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" class="${major ? 'tick major' : 'tick'}"/>`;
+  }
+  const [nx, ny] = clockXY(nowMin, 92);
+  const nowDot = `<circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="5" class="now-dot"/>`;
+  svg.innerHTML = `<circle cx="120" cy="120" r="114" class="clock-face"/>${ticks}${arcs}${nowDot}`;
+  big.textContent = centerBig;
+  sub.textContent = centerSub;
+  legend.innerHTML = legendHtml;
+  note.textContent = noteText;
 }
 function renderBars() {
   const bars = $('mini-bars');
